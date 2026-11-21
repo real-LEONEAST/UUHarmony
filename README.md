@@ -1,33 +1,49 @@
 # UUHarmony
 
-UUHarmony 是面向 HarmonyOS 手机和平板、以及鸿蒙电脑的非官方远程桌面项目。它提供自有设备列表、远程桌面、文件传输和鸿蒙 PC 的屏幕共享。远程连接和设备管理依赖网易 UU 远程服务。
+![UUHarmony 功能海报，展示手机、平板和电脑之间的远程控制、文件传输与屏幕共享](docs/media/uuharmony-hero.jpg)
 
-本源码快照对应 v1.0.63。项目与网易 UU 远程、华为无官方隶属关系。
+**在鸿蒙手机、平板和电脑上访问远端桌面。** 登录 UU 账号，从「我的设备」连接已启用 UU 远程的 Windows 电脑或已开启共享的鸿蒙电脑。出门时可以回到电脑上取文件，也可以换一台设备继续操作。
 
-## 源码结构
+UUHarmony 是独立维护的 HarmonyOS 适配项目。设备管理和远程连接使用网易 UU 远程服务。
 
-| 路径 | 内容 |
+## 能做什么
+
+- **远程桌面**。在手机和平板上使用触控和虚拟键盘，在鸿蒙电脑上使用鼠标、键盘和快捷键。会话中可切换远端显示屏，并查看实际连接状态。
+- **双向传文件**。鸿蒙电脑在同一个窗口中显示本机与远端目录，可输入路径或选择文件夹。已完成的任务可以在传输历史中查找。
+- **共享鸿蒙电脑**。在「共享此电脑」选择屏幕和画质，按需开启键鼠控制。停止共享可结束此次远程访问。
+
+## 支持的设备
+
+手机、平板和鸿蒙电脑共用同一份 **ARM64 HAP**，需要 **HarmonyOS API 26 及以上**。桌面共享、输入权限和可用的显示选项取决于设备系统与会话两端的支持情况。
+
+| 设备 | 用法 |
 | --- | --- |
-| `AppScope/`、`entry/` | HarmonyOS 应用、ArkUI 页面、资源和 C/C++ 绑定 |
-| `rust/` | 控制端 Rust 核心及所用 WebRTC 补丁 |
-| `host-rust/` | 鸿蒙 PC 被控端的 Rust 源码及其上游依赖 |
-| `hvigor/`、`scripts/build.cjs` | ARM64 构建配置和入口 |
-| `build-profile.example.json5` | 无签名的项目配置模板 |
+| 鸿蒙手机、平板 | 作为控制端连接在线电脑，使用触控、虚拟键盘和文件传输 |
+| 鸿蒙电脑（PC/2in1） | 作为控制端操作远端桌面，也可按系统授权共享本机 |
 
-## 构建 ARM64 HAP
+## 从源码构建
 
-在 Windows 上使用带 HarmonyOS API 26、Native SDK 和 OHPM 的 DevEco Studio，准备 Node.js 和带 `aarch64-unknown-linux-ohos` 目标的 Rust 工具链。从项目目录运行以下命令。
+准备 DevEco Studio 26.0.0 Release（含 ArkTS SDK、Native SDK、OHPM）、Node.js 和 Rust 工具链。在 Windows 的当前 `main` 工作副本中运行以下命令。
 
 ```powershell
 rustup target add aarch64-unknown-linux-ohos
 $env:DEVECO_HOME = 'C:/DevEco Studio'
-node scripts/build.cjs all
+node scripts/build.cjs release
 ```
 
-把 `DEVECO_HOME` 改成自己的 DevEco Studio 安装目录。Cargo 需要在 PATH 上，也可通过 `CARGO` 指定可执行文件。初次构建通常需要下载锁定的 Cargo 和 OHPM 依赖。脚本也支持分开执行 `native` 和 `hap`，并接受 `--offline` 来让 Cargo 使用已有缓存。
+把 `DEVECO_HOME` 改为本机的 DevEco Studio 安装目录。未签名的 HAP 和 APP 会输出到 `.build/release/`，文件名包含应用名称和版本号。真机安装需要根据用途使用调试签名或正式分发渠道。 [构建与发行指南](docs/BUILD-RELEASE.md)
 
-首次构建会从模板生成本地 `build-profile.json5`。默认产物是 `entry/build/default/outputs/default/entry-default-unsigned.hap`。真机安装时，在 DevEco Studio 中为自己的设备配置签名。覆盖安装需要沿用设备上现有应用的签名身份。
+应用版本为 **v1.0.63**。构建入口见当前 `main`，版本标签保留对应的原始源码快照。 [v1.0.63 源码标签](https://github.com/real-LEONEAST/UUHarmony/tree/v1.0.63)
 
-## 许可与来源
+## 项目结构
 
-许可文本和第三方来源见 [LICENSE](LICENSE) 与 [第三方声明](THIRD_PARTY_NOTICES.md)。开发者应在本地保存签名配置与调试设备资料。
+| 路径 | 内容 |
+| --- | --- |
+| `AppScope/`、`entry/` | 应用配置、ArkUI 界面、资源和 C/C++ 绑定 |
+| `rust/` | 控制端核心与 WebRTC 适配 |
+| `host-rust/` | 鸿蒙电脑被控端核心及其上游代码 |
+| `scripts/build.cjs`、`hvigor/` | ARM64 构建入口与 DevEco 构建配置 |
+
+## 许可
+
+根目录提供 GNU GPL 第 3 版许可文本。各上游组件的源码来源、修改和许可条款见第三方声明。 [许可证](LICENSE) · [第三方声明](THIRD_PARTY_NOTICES.md)
