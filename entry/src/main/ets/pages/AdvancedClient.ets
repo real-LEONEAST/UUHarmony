@@ -15,7 +15,28 @@ export class AdvancedClient {
  constructor(send:(c:AdvancedCommand)=>Promise<string>){this.send=send;this.files=new RemoteFiles((c:FilesCommand)=>{const command:AdvancedCommand={op:c.op,event:c.event};return send(command);});}
  observe(fn:((v:AdvancedView)=>void)|undefined):void{this.notify=fn;this.show();}
  private show():void {if(this.notify){const v=new AdvancedView();v.controls=this.view.controls;v.screenText=this.view.screenText;v.screenBusy=this.view.screenBusy;v.clipText=this.view.clipText;v.clipDraftBytes=this.view.clipDraftBytes;v.clipHasDraft=this.view.clipHasDraft;v.audioText=this.view.audioText;v.audioEnabled=this.view.audioEnabled;v.audioMuted=this.view.audioMuted;v.volume=this.view.volume;this.notify(v);}}
- async switchScreen(id:number):Promise<void>{if(this.view.screenBusy||!this.foreground){return;}const run=this.run;this.view.screenBusy=true;this.view.screenText='正在发送切屏请求';this.show();try{const event:ScreenSelection={action:'switch_screen',id:id,confirmed:true};const command:AdvancedCommand={op:'peer_advanced',event:event};const result=JSON.parse(await this.send(command)) as DisplayState;if(run!==this.run){return;}if(result.error){this.view.screenText=displayErrorText(result.error);}else{this.view.controls=result;this.view.screenText=displayStatus(result);}}catch(_){this.view.screenText='切屏接口暂不可用，请重试。';}finally{if(run===this.run){this.view.screenBusy=false;this.show();}}}
+ async switchScreen(id:number):Promise<DisplayState|undefined>{
+  if(this.view.screenBusy||!this.foreground){return undefined;}
+  const run=this.run;
+  this.view.screenBusy=true;
+  this.view.screenText='正在发送切屏请求';
+  this.show();
+  try{
+   const event:ScreenSelection={action:'switch_screen',id:id,confirmed:true};
+   const command:AdvancedCommand={op:'peer_advanced',event:event};
+   const result=JSON.parse(await this.send(command)) as DisplayState;
+   if(run!==this.run){return undefined;}
+   if(result.error){this.view.screenText=displayErrorText(result.error);return undefined;}
+   this.view.controls=result;
+   this.view.screenText=displayStatus(result);
+   return result;
+  }catch(_){
+   if(run===this.run){this.view.screenText='切屏接口暂不可用，请重试。';}
+   return undefined;
+  }finally{
+   if(run===this.run){this.view.screenBusy=false;this.show();}
+  }
+ }
  private async call(event:ClipboardEvent,op:string='peer_clipboard'):Promise<string>{if(!this.foreground){throw Error('foreground_required');}return this.send({op:op,event:event});}
  // Called only by the system-authorized PasteButton SUCCESS callback.
  async captureLocalClipboard():Promise<void>{const run=this.run;try{const data=await pasteboard.getSystemPasteboard().getData();if(run!==this.run||!this.foreground){return;}if(!data.hasType(pasteboard.MIMETYPE_TEXT_PLAIN)){throw Error('text_required');}const text=data.getPrimaryText();const bytes=new util.TextEncoder().encodeInto(text).length;if(bytes>30*1024||text.includes('\u0000')){throw Error('text_over_limit');}this.draft=text;this.view.clipDraftBytes=bytes;this.view.clipHasDraft=true;this.view.clipText=`已在本地读取${bytes}字节；确认后才发送到Windows。`;}

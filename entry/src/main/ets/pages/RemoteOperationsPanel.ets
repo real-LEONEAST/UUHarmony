@@ -209,7 +209,7 @@ export struct RemoteOperationsPanel {
     if(this.mode===TouchMode.Tablet){Text('使用外接鼠标前请切回屏幕触控。').fontSize(12).fontColor(UiColor.secondary).width('100%')}
     if(this.mode===TouchMode.Trackpad||this.mode===TouchMode.VirtualMouse){Text('指针速度 '+this.speed.toFixed(1)+' ×').fontSize(13).fontColor(UiColor.text).width('100%');Slider({value:this.speed,min:0.3,max:3,step:0.1}).id('pointerSpeed').selectedColor(UiColor.primary).trackColor(UiColor.neutralSoft).blockColor(UiColor.text).onChange((value:number,mode:SliderChangeMode)=>this.onSpeed(value,mode===SliderChangeMode.End||mode===SliderChangeMode.Click))}
     }
-    if(!this.desktopControls){this.action('显示','画质与显示器','openDisplay',true,()=>this.open('display'))}
+    if(!this.desktopControls){this.action('显示','画质与方向','openDisplay',true,()=>this.open('display'))}
     this.action('安全','','openSecurity',true,()=>this.open('security'))
     this.action('防窥模式',this.privacyCurrent===1?'已关闭':this.privacyCurrent===2?'隐私壁纸':this.privacyCurrent===3?'关闭物理屏幕':'等待电脑状态','openPrivacy',true,()=>this.openPrivacy())
     if(!this.desktopControls){this.action('外设','','openExternal',true,()=>this.open('external'))}
@@ -261,8 +261,10 @@ export struct RemoteOperationsPanel {
       this.action('横屏','','orientationLandscape',true,()=>this.onOrientation(2))
       this.action('反向竖屏','','orientationReversePortrait',true,()=>this.onOrientation(3))
       this.action('反向横屏','','orientationReverseLandscape',true,()=>this.onOrientation(4))
-      this.section('多显示器管理')
-      this.action('多显示器','','openMonitors',this.ready,this.onMonitors)
+      if(this.desktopControls){
+        this.section('多显示器管理')
+        this.action('多显示器','','openMonitors',this.ready,this.onMonitors)
+      }
       this.action(this.viewOnly?'结束本地缩放':'本地缩放','只调整此窗口中的画面','viewportToggle',this.ready,this.onViewport)
       this.action('画面复位','','resetViewport',true,this.onResetView)
       this.action('网络状态','','openNetwork',true,()=>this.open('net'))

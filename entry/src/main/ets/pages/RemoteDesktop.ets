@@ -173,6 +173,7 @@ struct RemoteDesktop {
   private childParent:string='';
   @State private monitorsOpen:boolean=false;
   @State private screenBusy:boolean=false;
+  @State private monitorRequestError:string='';
   @State private exitPending:boolean=false;
   @State private exitConfirming:boolean=false;
   @State private preferenceHint:string='操作方式和速度会记在本机，下次连接沿用。';
@@ -287,7 +288,7 @@ struct RemoteDesktop {
     this.visible=true;this.orientationChoice=windowPolicy.getRemoteOrientation();this.desktopName=session.deviceName||'远程桌面';windowPolicy.applyRemote(true).then(()=>this.updateInsets());session.setForeground(true,!pcHost.supported);this.advanced.setForeground(true);
     try{this.previousKeyboardAvoid=this.getUIContext().getKeyboardAvoidMode();this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);}catch(_){}
     this.releaseWindow=windowPolicy.observe((value:WindowSnapshot)=>{this.safeLeft=value.insets.left;this.safeRight=value.insets.right;this.safeTop=value.insets.top;this.safeBottom=value.insets.bottom;this.imeHeight=value.keyboardHeight;this.updateVideoInsets();this.scheduleInitialCanvasFocus();});
-    center.connect((r:SettingRequest)=>session.setting(r));center.observe((v:ControlView)=>{if(v.sessionReset!==this.centerView.sessionReset){this.advanced.disconnect();this.advancedOpen=false;this.qa=5;this.requestedFps=0;this.requestedResolution='remote';this.requestedLock=false;this.requestedMute=false;this.centerOpen=false;}this.centerView=snapshotView(v);this.refreshWindowsUnlock();});
+    center.connect((r:SettingRequest)=>session.setting(r));center.observe((v:ControlView)=>{if(v.sessionReset!==this.centerView.sessionReset){this.advanced.disconnect();this.advancedOpen=false;this.qa=5;this.requestedFps=0;this.requestedResolution='remote';this.requestedLock=false;this.requestedMute=false;this.centerOpen=false;this.monitorRequestError='';}this.centerView=snapshotView(v);this.refreshWindowsUnlock();});
     let rate:number=0;try{const local=display.getDefaultDisplaySync();rate=local.refreshRate;session.setViewerDisplay(local.width,local.height,rate);}catch(_){}center.capabilities(videoCapabilities(),rate);
     this.offInputReset=session.observeInputReset(()=>this.clearLocal());
     this.offSession=session.observe((s:string)=>{if(this.returnAfterHiddenRoom()){return;}this.signalText=s;this.touchSupport=session.touchSupport;this.syncPreferredMode();this.failureText=session.lastFailure;this.hasFrame=session.firstFrame;this.active=session.busy;this.controlEnabled=session.controlOpen&&session.firstFrame;this.frameWidth=session.frameWidth;this.frameHeight=session.frameHeight;this.geometry();if(!session.busy&&this.terminalOpen){this.closeTerminal();}if(!session.windowFocused){this.closeTerminal();if(this.directLockFlow){deviceLockRequest.finish(session.selected,'锁屏已取消：窗口已失焦。');this.leave();}}this.applyInitialTool();this.applyDirectLock();this.scheduleInitialCanvasFocus();this.captureRemoteCover();this.syncScreenOn();this.syncVirtualGate();});
@@ -348,7 +349,7 @@ struct RemoteDesktop {
   private closeAdvanced():void {this.fileBrowsing=false;this.safeReset();this.advancedOpen=false;this.restoreTools();this.syncInputGate();this.clearToolsTimer();}
   private bottomRail():boolean{return !pcHost.supported&&this.viewportH>this.viewportW;}
   private railWidth():number {return this.viewportH<440?78:88;}
-  private railVisible():boolean {return !pcHost.supported&&!this.terminalOpen&&this.hasFrame&&!this.failureText&&!this.keyboard;}
+  private railVisible():boolean {return !pcHost.supported&&!this.terminalOpen&&(this.hasFrame||session.hasEstablishedVideo)&&!this.failureText&&!this.keyboard;}
   private contentTop():number {return this.mergedPcTitle?48:this.safeTop+(pcHost.supported?56:0);}
   private pcTitleLayout():PcTitleLayout{return pcTitleLayout(this.viewportW,this.mergedPcTitle?this.titleButtonInset:this.safeRight);}
   private pcDisconnectWidth():number {return this.pcTitleLayout().compact?32:52;}
@@ -565,7 +566,35 @@ struct RemoteDesktop {
     if(!this.inputAvailable()){return;}this.clearActionOverlays();
     this.combo([164],9,'Alt+Tab');
   }
-  private openMonitors(value:boolean):void {if(value){this.childParent=this.toolsOpen?this.operationsPage:'';}this.safeReset();this.toolsOpen=false;this.monitorsOpen=value;if(!value){this.restoreTools();}this.syncInputGate();}
+  private openMonitors(value:boolean,fromTools:boolean=false):void {
+    this.safeReset();
+    if(value){
+      this.childParent=fromTools&&this.toolsOpen?this.operationsPage:'';
+      this.centerOpen=false;
+      this.advancedOpen=false;
+      this.fileBrowsing=false;
+      this.keyboard=false;
+    }
+    this.toolsOpen=false;
+    this.monitorsOpen=value;
+    if(!value){this.restoreTools();}
+    this.syncInputGate();
+  }
+  private currentMonitor(id:number):boolean {
+    const display=this.centerView.display;
+    return display?.selectedScreen===id&&this.hasFrame&&!this.screenBusy&&!session.displayBlocked&&
+      !display.displayPending&&!display.inputBlocked&&!display.displayError;
+  }
+  private monitorPanelStatus():string {
+    const display=this.centerView.display;
+    if(this.screenBusy){return '正在发送切屏请求';}
+    if(this.monitorRequestError){return this.monitorRequestError;}
+    if(!display?.inventoryReceived||display.displayPending||display.displayError){return this.centerView.displayText;}
+    if(display.changeKind==='switch'&&!this.hasFrame){return '正在接收所选显示器画面';}
+    if(display.screens.length===0){return '电脑未报告可用的显示器';}
+    if(display.screens.length===1){return '电脑当前只有一块显示器';}
+    return display.switchCommandSupported?'':'当前连接暂不支持切换显示器';
+  }
   private monitorSelectionAvailable():boolean {
     return this.visible&&!this.exitPending&&!this.exitConfirming&&!this.screenBusy&&session.hasEstablishedVideo&&session.controlOpen&&!this.directLockFlow&&!this.lockToken&&!!this.centerView.display?.inventoryReceived&&!!this.centerView.display?.switchCommandSupported&&!this.centerView.display?.displayPending;
   }
@@ -578,16 +607,24 @@ struct RemoteDesktop {
   private openScreenWindow(id:number):void {if(!session.multiMode){return;}const context=this.getUIContext().getHostContext() as common.UIAbilityContext;detached.open(context,id).then((ok:boolean)=>{if(!ok){this.getUIContext().getPromptAction().showToast({message:'无法打开显示器窗口',duration:2000});}});}
   private dragScreenEnd(id:number,event:GestureEvent):void {const finger=event.fingerList?.[0];if(!finger||Math.abs(event.offsetX)+Math.abs(event.offsetY)<24){return;}if(Math.abs(event.offsetY)>=56||!windowPolicy.containsDisplayPoint(finger.displayX,finger.displayY)){this.openScreenWindow(id);}}
   private async switchScreen(id:number):Promise<void> {
-    const state=this.centerView.display;
-    if(this.exitPending||this.exitConfirming||this.screenBusy||!this.monitorSelectionAvailable()||!state||state.displayPending||!state.switchCommandSupported||!state.screens.some((s:ScreenRow)=>s.id===id)){return;}
-    this.safeReset();this.screenBusy=true;
+    if(!this.monitorSelectionAvailable()||!this.centerView.display?.screens.some((s:ScreenRow)=>s.id===id)){return;}
+    this.safeReset();
+    this.monitorRequestError='';
+    this.screenBusy=true;
     try{
       if(session.multiMode){if(detached.hasScreen(id)){await detached.showScreen(id);return;}if(!await session.switchMultiPrimary(id)&&this.visible){this.getUIContext().getPromptAction().showToast({message:'显示器切换未完成，请重试',duration:2500});}return;}
-      await this.advanced.switchScreen(id);
+      const generation=session.generation;
+      const next=await this.advanced.switchScreen(id);
+      if(!this.visible||session.generation!==generation){return;}
+      if(next){
+        const value=snapshotView(this.centerView);
+        value.display=next;
+        value.displayText=displayStatus(next);
+        this.centerView=value;
+      }else{
+        this.monitorRequestError=this.advanced.view.screenText;
+      }
     }finally{this.screenBusy=false;}
-    if(!this.visible){return;}
-    const next=this.advanced.view.controls;
-    if(next){const value=snapshotView(this.centerView);value.display=next;value.displayText=displayStatus(next);this.centerView=value;}
   }
   private retrying:boolean=false;private retryRevision:number=0;private lastDesktopMulti:boolean=false;
   private initialTool:string='';
@@ -924,33 +961,51 @@ struct RemoteDesktop {
       micActive:this.micActive,micText:this.micText,onMicrophone:()=>this.toggleMicrophone(),
       onExternalKeyboard:()=>this.toggleExternalKeyboard(),onViewport:()=>this.toggleViewport(),onResetView:()=>{this.safeReset();this.touch.resetView();},
       onWatch:()=>{this.safeReset();center.apply({kind:'watch',enabled:!this.centerView.watch},'观看');},
-      onKeyboard:()=>this.openKeyboard(),virtualKeysOn:this.virtualKeysOn,onVirtualKeys:()=>this.toggleVirtualKeys(),onVirtualManage:()=>this.manageVirtualKeys(),onVirtualEdit:()=>this.manageVirtualKeys(true),virtualPlanName:virtualSelection.get()?.name||this.virtualPlan?.name||'官方默认',cameraAvailable:!!this.virtualPlan?.camera?.enabled,cameraActive:this.cameraMode,onCameraMode:()=>this.toggleCameraMode(),onQuality:()=>this.openCenter(true),onMonitors:()=>this.openMonitors(true),onSound:()=>this.openAdvanced(1),
+      onKeyboard:()=>this.openKeyboard(),virtualKeysOn:this.virtualKeysOn,onVirtualKeys:()=>this.toggleVirtualKeys(),onVirtualManage:()=>this.manageVirtualKeys(),onVirtualEdit:()=>this.manageVirtualKeys(true),virtualPlanName:virtualSelection.get()?.name||this.virtualPlan?.name||'官方默认',cameraAvailable:!!this.virtualPlan?.camera?.enabled,cameraActive:this.cameraMode,onCameraMode:()=>this.toggleCameraMode(),onQuality:()=>this.openCenter(true),onMonitors:()=>this.openMonitors(true,true),onSound:()=>this.openAdvanced(1),
       onClipboard:()=>this.openAdvanced(2),onFiles:()=>this.openAdvanced(3),onRelease:()=>{this.safeReset();this.getUIContext().getPromptAction().showToast({message:'已请求释放全部输入',duration:1500});},
       onClose:()=>this.toggleTools(false),onDisconnect:()=>this.requestExit()})
   }
   @Builder
   monitorPanel(){
-    Column({space:16}){
-      Row(){Text('显示器').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1);Button('返回',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).fontColor(UiColor.text).backgroundColor(UiColor.neutralSoft).constraintSize({minHeight:48}).id('closeMonitors').onClick(()=>this.openMonitors(false))}.width('100%')
-      Text(this.centerView.displayText).id('monitorStatus').fontSize(13).fontColor(UiColor.secondary).width('100%')
-      Scroll(){Column({space:12}){
-        if(!this.centerView.display?.inventoryReceived){Text('等待电脑报告屏幕信息').fontColor(UiColor.text).fontSize(15).width('100%')}
-        ForEach(this.centerView.display?.screens||[],(screen:ScreenRow)=>{
-          Column({space:10}){
-            Row({space:12}){Image($r('app.media.ui_computer')).width(24).height(24).accessibilityLevel('no');Text(screen.name||'显示器').fontSize(17).fontWeight(FontWeight.Medium).layoutWeight(1)}.width('100%')
-            Text(`${screen.native.width} × ${screen.native.height}${screen.native.height>screen.native.width?' · 竖屏':''}${screen.primary?' · 主屏幕':''}`).fontSize(13).fontColor(UiColor.secondary).width('100%')
-            Button(this.centerView.display?.selectedScreen===screen.id&&!this.centerView.display?.inputBlocked?'当前屏幕':this.centerView.display?.requestedScreen===screen.id&&!!this.centerView.display?.displayError?'重试切换':'切换到此屏幕',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12)
-              .id('switchScreen'+screen.id).fontColor(UiColor.text).backgroundColor(UiColor.neutralSoft).width('100%').height('auto').constraintSize({minHeight:48}).padding(12)
-              .enabled(this.monitorSelectionAvailable())
-              .onClick(()=>this.switchScreen(screen.id))
+    Column({space:12}){
+      Row(){Text('显示器').fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1);Button('返回',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).backgroundColor(UiColor.neutralSoft).constraintSize({minHeight:48}).id('closeMonitors').onClick(()=>this.openMonitors(false))}.width('100%')
+      if(this.monitorPanelStatus()){
+        Text(this.monitorPanelStatus()).id('monitorStatus').fontSize(13).fontColor(UiColor.secondary).width('100%')
+      }
+      Scroll(){Column({space:8}){
+        ForEach(this.centerView.display?.screens||[],(screen:ScreenRow,index:number)=>{
+          Column({space:4}){
+            Button({type:ButtonType.Normal}){
+              Row({space:10}){
+                Column({space:4}){
+                  Text(screen.name||'显示器 '+(index+1)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+                    .width('100%').maxLines(2).textOverflow({overflow:TextOverflow.Ellipsis})
+                  Text(`${screen.native.width} × ${screen.native.height}${screen.native.height>screen.native.width?' · 竖屏':''}${screen.primary?' · 主屏幕':''}`)
+                    .fontSize(12).fontColor(UiColor.secondary).width('100%')
+                }.layoutWeight(1)
+                if(this.currentMonitor(screen.id)){
+                  Text('✓ 当前屏幕').fontSize(12).fontColor(UiColor.primary)
+                }else if(this.centerView.display?.requestedScreen===screen.id&&this.centerView.display?.changeKind==='switch'){
+                  if(this.centerView.display?.displayPending){Text('正在切换').fontSize(12).fontColor(UiColor.secondary)}
+                  else if(this.centerView.display?.displayError){Text('重试切换').fontSize(12).fontColor(UiColor.primary)}
+                }
+              }.width('100%')
+            }.id('switchScreen'+screen.id).borderRadius(12).width('100%').height('auto').constraintSize({minHeight:56}).padding(12)
+              .backgroundColor(this.currentMonitor(screen.id)?UiColor.primarySoft:UiColor.neutralSoft)
+              .accessibilitySelected(this.currentMonitor(screen.id))
+              .stateEffect(!this.currentMonitor(screen.id))
+              .enabled(this.currentMonitor(screen.id)||this.monitorSelectionAvailable())
+              .onClick(()=>{if(!this.currentMonitor(screen.id)){this.switchScreen(screen.id);}})
             if(pcHost.supported&&session.multiMode){
               Button('在独立窗口打开',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).id('detachScreen'+screen.id).fontColor(UiColor.text).backgroundColor(UiColor.neutralSoft).width('100%').constraintSize({minHeight:48})
                 .enabled(!detached.hasScreen(screen.id)&&!this.screenBusy&&this.controlEnabled).onClick(()=>this.openScreenWindow(screen.id))
             }
-          }.padding(16).width('100%').backgroundColor(UiColor.neutralSoft).borderRadius(18)
-        },(screen:ScreenRow)=>screen.id.toString()+'|'+(this.centerView.display?.selectedScreen===screen.id)+'|'+(this.centerView.display?.requestedScreen===screen.id)+'|'+this.centerView.display?.displayPending+'|'+this.centerView.display?.displayError+'|'+this.screenBusy)
-        Text(pcHost.supported&&session.multiMode?'可将顶部显示器标签向下拖出，或在这里打开独立窗口。同时显示三屏；关闭独立窗口保留主窗口。':'竖屏时在底部工具栏左右滑动切换屏幕，横屏时在右侧工具栏上下滑动。切换期间暂停输入，收到新屏幕画面后恢复。').fontSize(13).fontColor(UiColor.secondary).width('100%')
-      }.width('100%')}.id('monitorScroll').layoutWeight(1).width('100%').scrollBar(BarState.Off)
+          }.width('100%')
+        },(screen:ScreenRow,index:number)=>screen.id+'|'+(screen.name||index)+'|'+screen.native.width+'x'+screen.native.height+'|'+screen.primary)
+        if(pcHost.supported&&session.multiMode){
+          Text('可将顶部显示器标签向下拖出，或在这里打开独立窗口。').fontSize(13).fontColor(UiColor.secondary).width('100%')
+        }
+      }.width('100%')}.id('monitorScroll').layoutWeight(1).width('100%').align(Alignment.Top).scrollBar(BarState.Off)
     }.id('remoteMonitorPanel').padding(20).width('100%').height('100%').backgroundColor(UiColor.surface).borderRadius(22).foregroundColor(UiColor.text)
   }
   @Builder
@@ -1018,7 +1073,7 @@ struct RemoteDesktop {
           Text(session.multiMode&&session.primaryScreenId<0&&detached.hasPane()?'显示器已移至独立窗口':this.failureText.length>0?'连接未完成':this.directLockFlow?'正在连接并锁屏':session.hasEstablishedVideo?'等待显示器画面':'正在连接电脑').fontSize(24).fontWeight(FontWeight.Bold).fontColor(UiColor.text).width('100%')
           Text(this.desktopName).fontSize(17).fontColor(UiColor.text).width('100%')
           Text(session.hasEstablishedVideo?this.centerView.displayText:this.signalText).id('remoteStatus').fontSize(14).fontColor(UiColor.secondary).width('100%')
-          if(session.hasEstablishedVideo&&!this.failureText&&!this.directLockFlow){Button('选择显示器',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).backgroundColor(UiColor.neutralSoft).id('recoverMonitorSelection').width('100%').constraintSize({minHeight:48}).enabled(this.monitorSelectionAvailable()).onClick(()=>this.openMonitors(true))}
+          if(session.hasEstablishedVideo&&!this.failureText&&!this.directLockFlow&&!this.railVisible()){Button('选择显示器',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).backgroundColor(UiColor.neutralSoft).id('recoverMonitorSelection').width('100%').constraintSize({minHeight:48}).enabled(this.monitorSelectionAvailable()).onClick(()=>this.openMonitors(true))}
           if(this.failureText.length>0){
             if(!detached.hasPane()){Button('使用 H.264 重试',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).backgroundColor(UiColor.neutralSoft).id('retryH264').width('100%').constraintSize({minHeight:48}).onClick(()=>{this.retryDesktop(false,true);})}
             if(session.legacyRetryAvailable&&!detached.hasPane()){Button('使用单窗口重试',{type:ButtonType.Normal}).fontColor(UiColor.text).borderRadius(12).backgroundColor(UiColor.neutralSoft).id('retrySingleWindow').width('100%').constraintSize({minHeight:48}).onClick(()=>this.retrySingleWindow())}
@@ -1046,8 +1101,8 @@ struct RemoteDesktop {
       if(pcHost.supported&&!this.terminalOpen){this.pcHeader()}
       if(this.terminalOpen){RemoteTerminalPanel({draft:$terminalDraft,output:this.terminalOutput,status:this.terminalStatus,ready:this.terminalPhase==='open',busy:this.terminalBusy,onSend:(text:string,line:boolean)=>this.terminalSend(text,line),onKey:(text:string)=>this.terminalSend(text),onClose:()=>this.requestTerminalReturn()})}
       if(this.railVisible()){
-        Row(){RemoteToolsRail({selectedTool:this.toolsOpen||this.centerOpen||this.advancedOpen||this.monitorsOpen?'railControls':'',screenLabel:toolbarScreenLabel(this.centerView.display),inputAvailable:this.inputAvailable(),horizontal:this.bottomRail(),compact:this.viewportH<440,availableHeight:this.railPlacement().height,availableWidth:this.railPlacement().width,
-          onControls:()=>{this.operationsInitial='ops';this.operationsPage='ops';this.toggleTools(true);},onKeyboard:()=>this.openKeyboard(),onDesktop:()=>this.showDesktop(),onWindows:()=>this.switchWindow(),onBegin:()=>this.safeReset(),onStep:(step:number)=>this.stepScreen(step)})}
+        Row(){RemoteToolsRail({selectedTool:this.monitorsOpen?'railMonitors':this.toolsOpen||this.centerOpen||this.advancedOpen?'railControls':'',screenLabel:toolbarScreenLabel(this.centerView.display),inputAvailable:this.inputAvailable(),horizontal:this.bottomRail(),compact:this.viewportH<440,availableHeight:this.railPlacement().height,availableWidth:this.railPlacement().width,
+          onControls:()=>{this.operationsInitial='ops';this.operationsPage='ops';this.toggleTools(true);},onMonitors:()=>this.openMonitors(!this.monitorsOpen),onKeyboard:()=>this.openKeyboard(),onDesktop:()=>this.showDesktop(),onWindows:()=>this.switchWindow(),onBegin:()=>this.safeReset(),onStep:(step:number)=>this.stepScreen(step)})}
           .position({left:this.railPlacement().left,top:this.railPlacement().top}).constraintSize({maxWidth:this.railPlacement().width,maxHeight:this.railPlacement().height}).hitTestBehavior(HitTestMode.Default)
       }
       Row(){}.width('100%').height(this.videoBottom).position({left:0,bottom:0}).backgroundColor('#03070D').hitTestBehavior(HitTestMode.None)
