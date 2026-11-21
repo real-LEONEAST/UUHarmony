@@ -177,26 +177,44 @@ struct Devices {
         .enabled(this.canRemoveDevice(card)).onClick(()=>this.requestDeviceRemoval(card))
     }
   }
-  private requestControlDisconnect(card:DeviceCard):void{
-    if(!this.visible||this.confirming||this.controlDisconnecting||this.stale||!card.participantToken||card.current||session.busy||session.isClosing){return;}
-    this.confirming=true;const key=card.key;const name=card.name;const token=card.participantToken;const run=this.actionEpoch;
+  private detailControlText(key:string):string {
+    const card=this.selected();
+    if(!card||card.key!==key||card.controlState==='idle'||card.controlState==='locally-ended'){return '';}
+    return this.stale&&this.refreshBusy?'正在更新设备状态…':this.stale&&this.refreshQueued?'等待更新设备状态…':card.controlLabel;
+  }
+  private controlDisconnectTarget(key:string):DeviceCard|undefined {
+    const card=this.selected();
+    return card?.key===key&&!card.current&&!this.stale&&card.participantToken?card:undefined;
+  }
+  private requestControlDisconnect(key:string):void{
+    const card=this.controlDisconnectTarget(key);
+    if(!card||!this.visible||this.confirming||this.controlDisconnecting||session.busy||session.isClosing){return;}
+    this.confirming=true;const name=card.name;const token=card.participantToken;const run=this.actionEpoch;
     const cancel=():void=>{this.confirming=false;};
     this.getUIContext().showAlertDialog({title:'断开该设备的全部控制？',message:name+'\n'+card.controlLabel+'\n将中断这台设备当前的所有远程控制。确认后会重新读取状态；若控制端已变化则取消。',cancel:cancel,primaryButton:{value:'取消',action:cancel},secondaryButton:{value:'断开全部控制',action:()=>{this.confirming=false;this.disconnectControl(key,name,token,run);}}});
   }
   private async disconnectControl(key:string,name:string,token:string,run:number):Promise<void>{
     if(this.controlDisconnecting||!this.visible||run!==this.actionEpoch){return;}this.controlDisconnecting=true;
     try{const beforeRefresh=client.view.refreshes;const refreshed=await client.refreshDevices(true);if(!this.visible||run!==this.actionEpoch){return;}this.view=client.view;this.rebuild();
-      const target=this.cards.find((item:DeviceCard)=>item.key===key&&item.name===name);
-      if(!refreshed||client.view.refreshes<=beforeRefresh||!target||!token||target.participantToken!==token||this.stale||session.busy||session.isClosing){this.message='控制状态已变化或无法确认，请重新查看后再操作。';return;}
+      const target=this.controlDisconnectTarget(key);
+      if(!refreshed||client.view.refreshes<=beforeRefresh||!target||target.name!==name||!token||target.participantToken!==token||session.busy||session.isClosing){this.message='控制状态已变化或无法确认，请重新查看后再操作。';return;}
       const sent=await client.clearDeviceControl(key,token);if(!this.visible||run!==this.actionEpoch){return;}
       if(!sent){this.message='断开请求未确认（HTTP '+client.view.httpStatus+'，服务代码 '+client.view.apiCode+'），请刷新后重试。';return;}
       this.message='已提交断开请求，正在确认设备状态…';const checked=await client.refreshDevices(true);if(!this.visible||run!==this.actionEpoch){return;}
       this.view=client.view;this.rebuild();const after=this.cards.find((item:DeviceCard)=>item.key===key);
-      this.message=checked&&after&&after.controlLabel==='未被控制'?'已确认该设备当前没有控制端。':'断开请求已提交，但尚未确认控制全部结束，请刷新查看。';
+      this.message=checked&&after?.controlState==='idle'?'已确认该设备当前没有控制端。':'断开请求已提交，但尚未确认控制全部结束，请刷新查看。';
     }finally{this.controlDisconnecting=false;}
   }
-  @Builder private disconnectButton(card:DeviceCard){
-    if(!card.current&&card.participantToken.length>0&&!this.stale){Button(this.controlDisconnecting?'处理中…':'断开控制').fontSize(13).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary).enabled(!this.controlDisconnecting&&!this.confirming&&!session.busy&&!session.isClosing).onClick(()=>this.requestControlDisconnect(card))}
+  @Builder private detailControlStatus(key:string){
+    if(this.detailControlText(key)){
+      Text(this.detailControlText(key)).id('deviceControlStatus').fontSize(14).fontColor(UiColor.secondary).width('100%')
+    }
+    if(this.controlDisconnectTarget(key)){
+      Button(this.controlDisconnecting?'处理中…':'断开控制').id('disconnectDeviceControl').fontSize(13)
+        .fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary)
+        .enabled(!this.controlDisconnecting&&!this.confirming&&!session.busy&&!session.isClosing)
+        .onClick(()=>this.requestControlDisconnect(key))
+    }
   }
   private visibleCards():DeviceCard[] {
     return visibleDeviceCards(this.cards,this.allDevices);
@@ -437,8 +455,7 @@ struct Devices {
       }.width('100%')
       Scroll(){Column({space:16}){
         if(this.message.length>0){UiNotice({text:this.message})}
-        Text(this.stale&&this.refreshBusy?'正在更新设备状态…':this.stale&&this.refreshQueued?'等待更新设备状态…':(this.cards.find((row:DeviceCard)=>row.key===this.selectedKey)?.controlLabel||card.controlLabel)).id('deviceControlStatus').fontSize(14).fontColor(UiColor.secondary).width('100%')
-        this.disconnectButton(card)
+        this.detailControlStatus(card.key)
         if(this.detailSessionKey===card.key){
           ForEach(this.detailSessionIds(),(id:number)=>{LiveDesktopPreview({deviceKey:this.detailSessionKey,deviceName:this.detailSessionName,lockToken:this.detailLockToken,onStopped:(message:string)=>this.detailSessionStopped(id,message)})},(id:number)=>id.toString())
         }else{
