@@ -1,0 +1,417 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! TERM client. OPEN responses have no request ID: serialize them and quarantine on uncertainty.
+use serde_json::{json, Value};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::{Duration, Instant},
+};
+
+const LIMIT: usize = 64 * 1024;
+const WAIT: Duration = Duration::from_secs(15);
+
+fn frame(kind: u8, id: u32, data: &[u8]) -> Vec<u8> {
+    let mut b = b"TERM\x01".to_vec();
+    b.extend([kind, 0, 0]);
+    b.extend(id.to_le_bytes());
+    b.extend((data.len() as u32).to_le_bytes());
+    b.extend(data);
+    b
+}
+
+#[derive(Default)]
+struct Session {
+    output: Vec<u8>,
+    phase: u8,
+    attached: bool,
+    name: String,
+    token: u32,
+    created: Option<u64>,
+    listed: bool,
+}
+
+struct Opening {
+    target: Option<u32>,
+    at: Instant,
+}
+
+struct Pending {
+    at: Instant,
+}
+
+#[derive(Default)]
+pub struct TerminalClient {
+    buffer: Vec<u8>,
+    sessions: BTreeMap<u32, Session>,
+    selected: Option<u32>,
+    opening: Option<Opening>,
+    open_quarantined: bool,
+    list_pending: Option<Instant>,
+    list_quarantined: bool,
+    next_token: u32,
+    kills: BTreeMap<u32, Pending>,
+    kill_quarantined: BTreeSet<u32>,
+    revision: u64,
+    list_state: &'static str,
+    kill_state: &'static str,
+    kill_target: Option<u32>,
+    last_error: &'static str,
+}
+
+impl TerminalClient {
+    fn id(e: &Value) -> Option<u32> {
+        e["session"].as_u64().and_then(|n| u32::try_from(n).ok())
+    }
+
+    fn target(&self, e: &Value) -> Result<u32, &'static str> {
+        let id = Self::id(e).or(self.selected).ok_or("terminal_session_required")?;
+        let Some(s) = self.sessions.get(&id) else { return Err("terminal_unknown_session") };
+        if e.get("sessionToken").is_some() && e["sessionToken"].as_u64() != Some(u64::from(s.token)) {
+            return Err("terminal_session_changed");
+        }
+        Ok(id)
+    }
+
+    pub fn prepare(&mut self, e: &Value) -> Result<Option<Vec<u8>>, &'static str> {
+        self.tick();
+        if e.as_object().is_none_or(|o| o.keys().any(|k| {
+            !["action", "confirmed", "text", "cols", "rows", "session", "sessionToken"].contains(&k.as_str())
+        })) {
+            return Err("terminal_unrecognized_field");
+        }
+        match e["action"].as_str() {
+            Some("status") => Ok(None),
+            Some("list") => {
+                if self.list_quarantined { return Err("terminal_list_uncertain_reconnect_required") }
+                if self.list_pending.is_some() { return Err("terminal_list_pending") }
+                self.list_pending = Some(Instant::now());
+                self.list_state = "pending";
+                Ok(Some(frame(9, 0, &[])))
+            }
+            Some("select") => {
+                let id = self.target(e)?;
+                if self.sessions[&id].phase != 2 { return Err("terminal_session_not_open") }
+                self.selected = Some(id);
+                if self.kills.is_empty() { self.kill_state = ""; }
+                self.revision += 1;
+                Ok(None)
+            }
+            Some("open") | Some("attach") => {
+                if e["confirmed"] != true { return Err("terminal_confirmation_required") }
+                if self.open_quarantined { return Err("terminal_open_uncertain_reconnect_required") }
+                if self.opening.is_some() { return Err("terminal_open_pending") }
+                let target = if e["action"] == "attach" {
+                    let id = self.target(e)?;
+                    if id == 0 { return Err("terminal_zero_attach_ambiguous") }
+                    if self.sessions[&id].phase != 1 || !self.sessions[&id].listed
+                        || self.list_pending.is_some() || self.list_quarantined || self.kill_quarantined.contains(&id)
+                    { return Err("terminal_session_unavailable") }
+                    Some(id)
+                } else { None };
+                self.opening = Some(Opening { target, at: Instant::now() });
+                self.last_error = "";
+                if self.kills.is_empty() { self.kill_state = ""; }
+                self.revision += 1;
+                Ok(Some(frame(1, target.unwrap_or(0), br#"{"cols":80,"rows":24,"option":"none"}"#)))
+            }
+            Some("write") => {
+                let id = self.target(e)?;
+                let s = &self.sessions[&id];
+                if s.phase != 2 || !s.attached || self.kills.contains_key(&id) || self.kill_quarantined.contains(&id) {
+                    return Err("terminal_not_open");
+                }
+                let text = e["text"].as_str().filter(|s| !s.is_empty() && s.len() <= 8192 && !s.contains('\0'))
+                    .ok_or("terminal_input_limit")?;
+                Ok(Some(frame(2, id, text.as_bytes())))
+            }
+            Some("resize") => {
+                let id = self.target(e)?;
+                let s = &self.sessions[&id];
+                if s.phase != 2 || !s.attached || self.kills.contains_key(&id) || self.kill_quarantined.contains(&id) {
+                    return Err("terminal_not_open");
+                }
+                let cols = e["cols"].as_u64().filter(|n| (1..=240).contains(n)).ok_or("terminal_invalid_size")?;
+                let rows = e["rows"].as_u64().filter(|n| (1..=100).contains(n)).ok_or("terminal_invalid_size")?;
+                Ok(Some(frame(3, id, json!({"cols":cols,"rows":rows}).to_string().as_bytes())))
+            }
+            Some("detach") => {
+                let id = self.target(e)?;
+                if e["sessionToken"].as_u64() != Some(u64::from(self.sessions[&id].token)) { return Err("terminal_session_changed") }
+                let s = self.sessions.get_mut(&id).unwrap();
+                if !s.attached { return Err("terminal_not_attached") }
+                s.attached = false;
+                s.phase = 1;
+                self.revision += 1;
+                Ok(Some(frame(16, id, &[])))
+            }
+            Some("kill") => {
+                if e["confirmed"] != true { return Err("terminal_confirmation_required") }
+                let id = self.target(e)?;
+                if e["sessionToken"].as_u64() != Some(u64::from(self.sessions[&id].token)) { return Err("terminal_session_changed") }
+                if !self.sessions[&id].attached && !self.sessions[&id].listed { return Err("terminal_session_unavailable") }
+                if self.kills.contains_key(&id) || self.kill_quarantined.contains(&id) { return Err("terminal_kill_pending_or_uncertain") }
+                self.kills.insert(id, Pending { at: Instant::now() });
+                self.kill_target = Some(id);
+                self.kill_state = "pending";
+                self.revision += 1;
+                Ok(Some(frame(11, id, json!({"session_id":id}).to_string().as_bytes())))
+            }
+            // The desktop overlay owns its terminal and closes it on exit.
+            Some("close") => {
+                if self.opening.take().is_some() {
+                    self.open_quarantined = true;
+                    self.last_error = "open_cancelled_unknown";
+                }
+                let Some(id) = Self::id(e).or(self.selected) else { return Ok(None) };
+                if let Some(s) = self.sessions.get_mut(&id) {
+                    s.phase = 0;
+                    s.attached = false;
+                    s.output.clear();
+                }
+                self.revision += 1;
+                Ok(Some(frame(4, id, &[])))
+            }
+            _ => Err("terminal_unsupported_action"),
+        }
+    }
+
+    pub fn send_failed(&mut self, action: &str, id: Option<u32>) {
+        match action {
+            "open" | "attach" => {
+                self.opening = None;
+                self.open_quarantined = true;
+                self.last_error = "open_send_uncertain";
+            }
+            "list" => {
+                self.list_pending = None;
+                self.list_quarantined = true;
+                self.list_state = "unknown";
+            }
+            "detach" => {
+                if let Some(s) = id.and_then(|id| self.sessions.get_mut(&id)) { s.phase = 4; }
+            }
+            "kill" => {
+                if let Some(id) = id.or(self.kill_target) {
+                    self.kills.remove(&id);
+                    self.kill_quarantined.insert(id);
+                    self.kill_target = Some(id);
+                    self.kill_state = "unknown";
+                }
+            }
+            _ => {}
+        }
+        self.revision += 1;
+    }
+
+    fn fail_protocol(&mut self) {
+        self.buffer.clear();
+        self.opening = None;
+        self.open_quarantined = true;
+        self.last_error = "invalid_frame";
+        for s in self.sessions.values_mut() { s.phase = 4; s.attached = false; }
+        for id in self.kills.keys() { self.kill_quarantined.insert(*id); }
+        self.kills.clear();
+        self.revision += 1;
+    }
+
+    fn tick(&mut self) {
+        if self.opening.as_ref().is_some_and(|p| p.at.elapsed() > WAIT) {
+            self.opening = None;
+            self.open_quarantined = true;
+            self.last_error = "open_timeout_unknown";
+            self.revision += 1;
+        }
+        if self.list_pending.is_some_and(|t| t.elapsed() > WAIT) {
+            self.list_pending = None;
+            self.list_quarantined = true;
+            self.list_state = "timeout";
+            self.revision += 1;
+        }
+        let timed = self.kills.iter().filter_map(|(id, p)| (p.at.elapsed() > WAIT).then_some(*id)).collect::<Vec<_>>();
+        for id in timed {
+            self.kills.remove(&id);
+            self.kill_quarantined.insert(id);
+            self.kill_target = Some(id);
+            self.kill_state = "unknown";
+            self.revision += 1;
+        }
+    }
+    pub fn observe(&mut self, data: &[u8]) {
+        self.tick();
+        if self.buffer.is_empty() && !(data.starts_with(b"TERM") || b"TERM".starts_with(data)) { return; }
+        if self.buffer.len() + data.len() > 2 * 1024 * 1024 { self.fail_protocol(); return; }
+        self.buffer.extend(data);
+        loop {
+            if self.buffer.len() < 16 { return; }
+            let b = &self.buffer;
+            if &b[..5] != b"TERM\x01" || b[6] != 0 || b[7] != 0 { self.fail_protocol(); return; }
+            let kind = b[5];
+            let id = u32::from_le_bytes(b[8..12].try_into().unwrap());
+            let len = u32::from_le_bytes(b[12..16].try_into().unwrap()) as usize;
+            if len > 1024 * 1024 || !(1..=16).contains(&kind) { self.fail_protocol(); return; }
+            if b.len() < 16 + len { return; }
+            let payload = b[16..16 + len].to_vec();
+            self.buffer.drain(..16 + len);
+            match kind {
+                13 => self.observe_open(id, &payload),
+                10 => self.observe_list(id, &payload),
+                12 => self.observe_kill(id, &payload),
+                5 => {
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        if s.phase == 2 && s.attached {
+                            s.output.extend(payload);
+                            if s.output.len() > LIMIT { s.output.drain(..s.output.len() - LIMIT); }
+                            self.revision += 1;
+                        }
+                    }
+                }
+                6 => {
+                    if let Some(s) = self.sessions.get_mut(&id) {
+                        s.phase = 3;
+                        s.attached = false;
+                        self.revision += 1;
+                    }
+                }
+                8 => {
+                    let open_error = self.opening.as_ref().is_some_and(|open| id == 0 || open.target == Some(id));
+                    if open_error {
+                        self.opening = None;
+                        self.open_quarantined = true;
+                        self.last_error = "open_error_unknown";
+                    } else if let Some(s) = self.sessions.get_mut(&id) {
+                        s.phase = 4;
+                    }
+                    self.revision += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn observe_open(&mut self, id: u32, payload: &[u8]) {
+        let Some(open) = self.opening.take() else { return };
+        let Ok(v) = serde_json::from_slice::<Value>(payload) else {
+            self.open_quarantined = true;
+            self.last_error = "invalid_open_response";
+            return;
+        };
+        if v["code"].as_i64() != Some(0) {
+            self.last_error = "open_rejected";
+            self.revision += 1;
+            return;
+        }
+        let body = v["session_id"].as_u64().or_else(|| v["session_id"].as_str().and_then(|s| s.parse().ok()));
+        if body.is_some_and(|n| n > u32::MAX as u64) {
+            self.open_quarantined = true;
+            self.last_error = "invalid_open_id";
+            return;
+        }
+        let actual = if id != 0 { id } else if let Some(n) = body { n as u32 } else { open.target.unwrap_or(0) };
+        if open.target.is_some_and(|target| actual != target) || open.target.is_none() && self.sessions.contains_key(&actual) {
+            self.open_quarantined = true;
+            self.last_error = "ambiguous_open_id";
+            self.revision += 1;
+            return;
+        }
+        if !self.sessions.contains_key(&actual) {
+            if self.sessions.len() >= 256 {
+                self.open_quarantined = true;
+                self.last_error = "session_limit";
+                return;
+            }
+            self.next_token = self.next_token.saturating_add(1);
+            let mut s = Session::default();
+            s.token = self.next_token;
+            self.sessions.insert(actual, s);
+        }
+        let s = self.sessions.get_mut(&actual).unwrap();
+        if open.target.is_some() { s.output.clear(); }
+        s.phase = 2;
+        s.attached = true;
+        if s.name.is_empty() { s.name = format!("终端 {}", actual); }
+        self.selected = Some(actual);
+        self.last_error = "";
+        self.revision += 1;
+    }
+
+    fn observe_list(&mut self, id: u32, payload: &[u8]) {
+        if id != 0 || self.list_pending.is_none() { return; }
+        self.list_pending = None;
+        let Ok(Value::Array(items)) = serde_json::from_slice::<Value>(payload) else {
+            self.list_state = "failed";
+            return;
+        };
+        if items.len() > 256 { self.list_state = "failed"; return; }
+        for s in self.sessions.values_mut() { s.listed = false; }
+        for v in items {
+            let Some(sid) = v["session_id"].as_u64().and_then(|n| u32::try_from(n).ok()) else { continue };
+            let name = v["name"].as_str().unwrap_or("").chars().take(80).filter(|c| !c.is_control()).collect::<String>();
+            if !self.sessions.contains_key(&sid) {
+                if self.sessions.len() >= 256 { continue; }
+                self.next_token = self.next_token.saturating_add(1);
+                let mut s = Session::default();
+                s.token = self.next_token;
+                self.sessions.insert(sid, s);
+            }
+            let created = v["created_at_ms"].as_u64().filter(|n| *n > 0);
+            let s = self.sessions.get_mut(&sid).unwrap();
+            if s.created.is_some() && created.is_some() && s.created != created {
+                s.phase = 4;
+                s.attached = false;
+                self.kills.remove(&sid);
+                self.kill_quarantined.insert(sid);
+                self.kill_target = Some(sid);
+                self.kill_state = "unknown";
+                continue;
+            }
+            if s.created.is_none() { s.created = created; }
+            let state = v["state"].as_str().unwrap_or("").to_ascii_lowercase();
+            s.listed = !matches!(state.as_str(), "exited" | "stopped" | "closed" | "terminated" | "dead");
+            if !s.listed { s.phase = 3; s.attached = false; }
+            if !name.is_empty() { s.name = name; }
+            if s.phase == 0 && s.listed { s.phase = 1; }
+        }
+        self.list_state = "confirmed";
+        self.revision += 1;
+    }
+
+    fn observe_kill(&mut self, id: u32, payload: &[u8]) {
+        if self.kills.remove(&id).is_none() { return; }
+        let code = serde_json::from_slice::<Value>(payload).ok().and_then(|v| v["code"].as_i64());
+        self.kill_target = Some(id);
+        if code == Some(0) {
+            if let Some(s) = self.sessions.get_mut(&id) { s.phase = 3; s.attached = false; }
+            self.kill_state = "confirmed";
+        } else if code.is_some() {
+            self.kill_state = "rejected";
+        } else {
+            self.kill_state = "unknown";
+            self.kill_quarantined.insert(id);
+        }
+        self.revision += 1;
+    }
+
+    pub fn snapshot(&mut self) -> Value {
+        self.tick();
+        let selected = self.selected.and_then(|id| self.sessions.get(&id));
+        let phase = if self.opening.is_some() { "opening" } else {
+            selected.map(|s| Self::phase(s.phase)).unwrap_or(if self.last_error.is_empty() { "closed" } else { "failed" })
+        };
+        let sessions = self.sessions.iter().map(|(id, s)| json!({
+            "session": id, "sessionToken": s.token, "listed": s.listed, "name": s.name,
+            "phase": Self::phase(s.phase), "attached": s.attached,
+            "killPending": self.kills.contains_key(id), "killUncertain": self.kill_quarantined.contains(id)
+        })).collect::<Vec<_>>();
+        json!({
+            "phase": phase, "session": self.selected, "selectedToken": selected.map(|s| s.token),
+            "revision": self.revision,
+            "output": selected.map(|s| String::from_utf8_lossy(&s.output).into_owned()).unwrap_or_default(),
+            "sessions": sessions, "opening": self.opening.is_some(), "openQuarantined": self.open_quarantined,
+            "errorDetail": self.last_error, "listState": self.list_state,
+            "killState": self.kill_state, "killTarget": self.kill_target
+        })
+    }
+
+    fn phase(phase: u8) -> &'static str {
+        match phase { 1 => "available", 2 => "open", 3 => "exited", 4 => "failed", _ => "closed" }
+    }
+}

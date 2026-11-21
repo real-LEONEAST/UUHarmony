@@ -1,0 +1,18 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/Devices",
+    "pages/RemoteDesktop",
+    "pages/Terminal",
+    "pages/TerminalHub",
+    "pages/PcShare",
+    "pages/Assistance",
+    "pages/FileTransfer",
+    "pages/PcFileWindow",
+    "pages/TransferHistory",
+    "pages/AppPicker",
+    "pages/DetachedView",
+    "pages/AppSettings",
+    "pages/VirtualPlanPage"
+  ]
+}

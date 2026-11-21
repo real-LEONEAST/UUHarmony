@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "downloads_reason",
+      "value": "在下载目录中建立 UUHarmony 文件夹，保存远程传输的文件。"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "开启麦克风回传后，将你的声音发送到当前连接的电脑。"
+    },
+    {
+      "name": "module_desc",
+      "value": "UUHarmony 远程控制客户端（非官方）"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "UUHarmony 远程控制客户端（非官方）"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "UUHarmony"
+    }
+  ]
+}

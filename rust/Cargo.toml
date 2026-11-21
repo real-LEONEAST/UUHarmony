@@ -1,0 +1,44 @@
+[package]
+name = "uus5"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+rtp-diagnostics = ["webrtc/rtp-diagnostics"]
+portrait-no-scale-rpc = ["rtp-diagnostics"]
+direct-screen-setting = ["rtp-diagnostics"]
+reported-portrait-profile = ["rtp-diagnostics"]
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+hmac = "=0.12.1"
+sha2 = "=0.10.9"
+hex = "=0.4.3"
+base64 = "=0.22.1"
+getrandom = "=0.2.17"
+zeroize = "=1.9.1"
+flate2 = "=1.1.10"
+[target.'cfg(target_env = "ohos")'.dependencies]
+bytes = "=1.12.1"
+webrtc = "=0.10.1"
+x509-parser = "=0.15.1"
+tokio = { version = "=1.53.2", features = ["full"] }
+
+[patch.crates-io]
+webrtc = { path = "vendor/webrtc" }
+webrtc-ice = { path = "vendor/webrtc-ice" }
+webrtc-dtls = { path = "vendor/webrtc-dtls" }
+webrtc-srtp = { path = "vendor/webrtc-srtp" }
+webrtc-util = { path = "vendor/webrtc-util" }
+webrtc-sctp = { path = "vendor/webrtc-sctp" }
+
+[profile.release]
+opt-level = 1
+lto = false
+codegen-units = 16
+panic = "unwind"

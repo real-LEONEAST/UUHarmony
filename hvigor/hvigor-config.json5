@@ -1,0 +1,7 @@
+{
+  "modelVersion": "26.0.0",
+  "dependencies": {},
+  "execution": { "daemon": false, "incremental": true, "parallel": false, "optimizationStrategy": "memory" },
+  "logging": { "level": "info" },
+  "nodeOptions": { "maxOldSpaceSize": 2048 }
+}

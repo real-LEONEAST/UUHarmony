@@ -1,0 +1,6 @@
+{
+  "layered-image": {
+    "background": "$media:uu_icon_background",
+    "foreground": "$media:uu_icon_v27"
+  }
+}

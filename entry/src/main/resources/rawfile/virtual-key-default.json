@@ -1,0 +1,252 @@
+[
+  {
+    "config_info": {
+      "name": "默认方案",
+      "source": ""
+    },
+    "virtual_keys": [
+      {
+        "description": "",
+        "type": "direction_swipehold",
+        "label": "W+A+S+D",
+        "display_name": "wasd",
+        "icon": {
+          "position": {
+            "rel_y": 72.32866710280376,
+            "rel_x": 20.42404497776897,
+            "layout": "global"
+          },
+          "visibility": true,
+          "radius": 70
+        }
+      },
+      {
+        "extra": {
+          "press_can_be_dragged": true,
+          "press_and_lock": false
+        },
+        "label": "MOUSE_PRIMARY",
+        "description": "",
+        "type": "single_key",
+        "icon": {
+          "position": {
+            "rel_x": 77.61166766012792,
+            "layout": "global",
+            "rel_y": 75.4209321803613
+          },
+          "visibility": true,
+          "radius": 18
+        },
+        "display_name": "左键"
+      },
+      {
+        "description": "",
+        "extra": {
+          "press_can_be_dragged": true,
+          "press_and_lock": false
+        },
+        "label": "MOUSE_SECONDARY",
+        "type": "single_key",
+        "icon": {
+          "position": {
+            "layout": "global",
+            "rel_x": 82.9473065097036,
+            "rel_y": 75.24737647433844
+          },
+          "radius": 18,
+          "visibility": true
+        },
+        "display_name": "右键"
+      },
+      {
+        "description": "",
+        "display_name": "Alt",
+        "extra": {
+          "press_and_lock": false,
+          "press_can_be_dragged": false
+        },
+        "icon": {
+          "radius": 18,
+          "position": {
+            "layout": "global",
+            "rel_y": 90,
+            "rel_x": 32
+          },
+          "visibility": true
+        },
+        "label": "ALT_LEFT",
+        "type": "single_key"
+      },
+      {
+        "display_name": "Ctrl",
+        "type": "single_key",
+        "description": "",
+        "label": "CTRL_LEFT",
+        "extra": {
+          "press_and_lock": false,
+          "press_can_be_dragged": false
+        },
+        "icon": {
+          "radius": 18,
+          "position": {
+            "rel_y": 90,
+            "rel_x": 38,
+            "layout": "global"
+          },
+          "visibility": true
+        }
+      },
+      {
+        "display_name": "1",
+        "type": "single_key",
+        "description": "",
+        "extra": {
+          "press_can_be_dragged": false,
+          "press_and_lock": false
+        },
+        "label": "1",
+        "icon": {
+          "position": {
+            "layout": "global",
+            "rel_x": 88.3,
+            "rel_y": 28.25
+          },
+          "visibility": true,
+          "radius": 18
+        }
+      },
+      {
+        "label": "2",
+        "description": "",
+        "type": "single_key",
+        "icon": {
+          "visibility": true,
+          "radius": 18,
+          "position": {
+            "rel_y": 38.25,
+            "layout": "global",
+            "rel_x": 88.3
+          }
+        },
+        "display_name": "2",
+        "extra": {
+          "press_can_be_dragged": false,
+          "press_and_lock": false
+        }
+      },
+      {
+        "icon": {
+          "visibility": true,
+          "radius": 18,
+          "position": {
+            "layout": "global",
+            "rel_x": 88.3,
+            "rel_y": 48.25
+          }
+        },
+        "display_name": "3",
+        "label": "3",
+        "description": "",
+        "type": "single_key",
+        "extra": {
+          "press_and_lock": false,
+          "press_can_be_dragged": false
+        }
+      },
+      {
+        "extra": {
+          "press_and_lock": false,
+          "press_can_be_dragged": false
+        },
+        "label": "4",
+        "type": "single_key",
+        "display_name": "4",
+        "description": "",
+        "icon": {
+          "position": {
+            "layout": "global",
+            "rel_x": 88.3,
+            "rel_y": 58.25
+          },
+          "radius": 18,
+          "visibility": true
+        }
+      },
+      {
+        "description": "",
+        "type": "single_key",
+        "icon": {
+          "visibility": true,
+          "radius": 22,
+          "position": {
+            "rel_y": 5.755449503303884,
+            "layout": "global",
+            "rel_x": 11.479819114470843
+          }
+        },
+        "label": "ESCAPE",
+        "display_name": "Esc",
+        "extra": {
+          "press_can_be_dragged": false,
+          "press_and_lock": false
+        }
+      },
+      {
+        "extra": {
+          "sensitivity": 50
+        },
+        "type": "directional_mouse_scroll",
+        "description": "",
+        "label": "",
+        "display_name": "",
+        "icon": {
+          "position": {
+            "rel_x": 11,
+            "layout": "global",
+            "rel_y": 45
+          },
+          "visibility": true,
+          "radius": 18
+        }
+      },
+      {
+        "icon": {
+          "position": {
+            "rel_x": 78.68303571428571,
+            "rel_y": 88.64734299516908,
+            "layout": "global"
+          },
+          "radius": 22,
+          "visibility": true
+        },
+        "display_name": "Space",
+        "label": "SPACE",
+        "description": "",
+        "type": "single_key",
+        "extra": {
+          "press_can_be_dragged": false,
+          "press_and_lock": false
+        }
+      },
+      {
+        "display_name": "Enter",
+        "type": "single_key",
+        "description": "",
+        "label": "ENTER",
+        "extra": {
+          "press_and_lock": false,
+          "press_can_be_dragged": false
+        },
+        "icon": {
+          "radius": 22,
+          "position": {
+            "layout": "global",
+            "rel_x": 85.82589285714286,
+            "rel_y": 88.76811594202898
+          },
+          "visibility": true
+        }
+      }
+    ]
+  }
+]

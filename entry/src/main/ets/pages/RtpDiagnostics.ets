@@ -1,0 +1,31 @@
+import { hilog } from '@kit.PerformanceAnalysisKit';
+interface RtpSrtp { selectedRawPackets?:number; selectedRawBytes?:number; selectedAuthRejected?:number; selectedReplayRejected?:number; selectedOtherRejected?:number; rawPackets?:number; rawBytes?:number; authRejected?:number; replayRejected?:number; otherRejected?:number; invalidPadding:number; packets:number; nonemptyPackets:number; payloadBytes:number; paddingOnly:number; selectedPayloadPackets:number; selectedPayloadBytes:number; }
+interface RtpDemux { probePayloadPackets:number; probePayloadBytes:number; probePaddingOnly:number; probeSelectedPackets:number; probeSelectedBytes:number; probeOverflow:number; unknownStreams:number; errors:number; missingMidExtension:number; missingRidExtension:number; noMatchingRid:number; probeFailed:number; unknownCodec:number; otherError:number; midPresent:number; ridPresent:number; midMatched:number; ridMatched:number; payloadTypeKnown:number; bound:number; }
+interface RtpVideoSection { midExtension:boolean; ridExtension:boolean; repairedRidExtension:boolean; h264PayloadType:number|null; h264ProfileIdc:number|null; h264Constraints:number|null; h264LevelIdc:number|null; }
+interface RtpNegotiated { midExtension:boolean; ridExtension:boolean; repairedRidExtension:boolean; }
+interface RtpVideoSummary { videoSections:RtpVideoSection[]; }
+export interface RtpDiagnostics { directSwitchEnabled?:boolean; portraitScaleBypassed?:boolean; diagnosticTimedOut:boolean; offerAvailable:boolean; answerAvailable:boolean; negotiatedVideoExtensions:RtpNegotiated[]; srtp:RtpSrtp|null; demux:RtpDemux|null; answer:RtpVideoSummary; offer:RtpVideoSummary; selectedPayloadType:number|null; sampledPayloadType:number; }
+
+export function logRtpDiagnostics(diag:RtpDiagnostics|undefined):void {
+    try {
+
+        if (diag) {
+            hilog.info(0x0303, 'UURtpDiag', 'kind=5 timeout=%{public}d offerAvailable=%{public}d answerAvailable=%{public}d scaleBypassed=%{public}d directSwitch=%{public}d',diag.diagnosticTimedOut?1:0,diag.offerAvailable?1:0,diag.answerAvailable?1:0,diag.portraitScaleBypassed===undefined?-1:diag.portraitScaleBypassed?1:0,diag.directSwitchEnabled===undefined?-1:diag.directSwitchEnabled?1:0);
+            const packet = diag.srtp;
+            if (packet) { hilog.info(0x0303, 'UURtpDiag', 'kind=0 packets=%{public}d nonempty=%{public}d bytes=%{public}d padding=%{public}d selectedPackets=%{public}d selectedBytes=%{public}d', packet.packets, packet.nonemptyPackets, packet.payloadBytes, packet.paddingOnly, packet.selectedPayloadPackets, packet.selectedPayloadBytes); }
+            if (packet) { hilog.info(0x0303, 'UURtpDiag', 'kind=6 invalidPadding=%{public}d',packet.invalidPadding); }
+            if (packet && packet.rawPackets !== undefined) { hilog.info(0x0303,'UURtpDiag','kind=10 rawPackets=%{public}d rawBytes=%{public}d authRejected=%{public}d replayRejected=%{public}d otherRejected=%{public}d',packet.rawPackets,packet.rawBytes??-1,packet.authRejected??-1,packet.replayRejected??-1,packet.otherRejected??-1); }
+            if (packet && packet.selectedRawPackets !== undefined) { hilog.info(0x0303,'UURtpDiag','kind=11 selectedRawPackets=%{public}d selectedRawBytes=%{public}d selectedAuthRejected=%{public}d selectedReplayRejected=%{public}d selectedOtherRejected=%{public}d',packet.selectedRawPackets,packet.selectedRawBytes??-1,packet.selectedAuthRejected??-1,packet.selectedReplayRejected??-1,packet.selectedOtherRejected??-1); }
+            const demux = diag.demux;
+            if (demux) {
+            hilog.info(0x0303, 'UURtpDiag', 'kind=1 unknown=%{public}d errors=%{public}d missingMid=%{public}d missingRid=%{public}d noRid=%{public}d probeFailed=%{public}d unknownCodec=%{public}d other=%{public}d', demux.unknownStreams, demux.errors, demux.missingMidExtension, demux.missingRidExtension, demux.noMatchingRid, demux.probeFailed, demux.unknownCodec, demux.otherError);
+            hilog.info(0x0303, 'UURtpDiag', 'kind=2 midPresent=%{public}d ridPresent=%{public}d midMatched=%{public}d ridMatched=%{public}d payloadKnown=%{public}d bound=%{public}d selected=%{public}d sampled=%{public}d', demux.midPresent, demux.ridPresent, demux.midMatched, demux.ridMatched, demux.payloadTypeKnown, demux.bound, diag.selectedPayloadType === null ? -1 : diag.selectedPayloadType, diag.sampledPayloadType);
+            hilog.info(0x0303, 'UURtpDiag', 'kind=7 probeOverflow=%{public}d',demux.probeOverflow);
+            hilog.info(0x0303, 'UURtpDiag', 'kind=9 probePackets=%{public}d probeBytes=%{public}d probePadding=%{public}d selectedPackets=%{public}d selectedBytes=%{public}d',demux.probePayloadPackets,demux.probePayloadBytes,demux.probePaddingOnly,demux.probeSelectedPackets,demux.probeSelectedBytes);
+            }
+            diag.negotiatedVideoExtensions.forEach((ext:RtpNegotiated,index:number)=>{hilog.info(0x0303, 'UURtpDiag', 'kind=8 index=%{public}d mid=%{public}d rid=%{public}d repairedRid=%{public}d',index,ext.midExtension?1:0,ext.ridExtension?1:0,ext.repairedRidExtension?1:0);});
+            diag.offer.videoSections.forEach((section:RtpVideoSection,index:number)=>{hilog.info(0x0303, 'UURtpDiag', 'kind=4 index=%{public}d mid=%{public}d rid=%{public}d repairedRid=%{public}d payload=%{public}d profile=%{public}d constraints=%{public}d level=%{public}d',index,section.midExtension?1:0,section.ridExtension?1:0,section.repairedRidExtension?1:0,section.h264PayloadType === null ? -1 : section.h264PayloadType,section.h264ProfileIdc === null ? -1 : section.h264ProfileIdc,section.h264Constraints === null ? -1 : section.h264Constraints,section.h264LevelIdc === null ? -1 : section.h264LevelIdc);});
+            diag.answer.videoSections.forEach((section:RtpVideoSection,index:number)=>{hilog.info(0x0303, 'UURtpDiag', 'kind=3 index=%{public}d mid=%{public}d rid=%{public}d repairedRid=%{public}d payload=%{public}d profile=%{public}d constraints=%{public}d level=%{public}d',index,section.midExtension?1:0,section.ridExtension?1:0,section.repairedRidExtension?1:0,section.h264PayloadType === null ? -1 : section.h264PayloadType,section.h264ProfileIdc === null ? -1 : section.h264ProfileIdc,section.h264Constraints === null ? -1 : section.h264Constraints,section.h264LevelIdc === null ? -1 : section.h264LevelIdc);});
+        }
+    } catch (_) {}
+}

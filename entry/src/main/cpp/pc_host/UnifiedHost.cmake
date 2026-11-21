@@ -1,0 +1,10 @@
+# Additive host module; controller sources and archive remain unchanged.
+set(UU_HOST_DIR "${CMAKE_CURRENT_LIST_DIR}")
+set(UU_HOST_RUST "${UU_HOST_DIR}/../../../../../host-rust/target/${S5_RUST_TARGET}/release/libuu_remote_harmony.a")
+if(NOT EXISTS "${UU_HOST_RUST}")
+  message(FATAL_ERROR "Run node scripts/build.cjs native first")
+endif()
+add_library(uuhost SHARED "${UU_HOST_DIR}/bridge.cc" "${UU_HOST_DIR}/secure_config.cc" "${UU_HOST_DIR}/account_bridge.cc" "${UU_HOST_DIR}/host_audio.cc")
+target_compile_options(uuhost PRIVATE -fno-exceptions -Wall -Wextra)
+target_link_options(uuhost PRIVATE -Wl,--no-undefined)
+target_link_libraries(uuhost PRIVATE Opus::opus ${UU_HOST_RUST} ace_napi.z asset_ndk.z native_avscreen_capture native_media_venc native_media_codecbase native_media_core native_window ohinput hilog_ndk.z dl m)

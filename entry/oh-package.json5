@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "S3c UU account and device discovery",
+  "dependencies": {
+    "libs3c.so": "file:./src/main/cpp/types/libs3c",
+    "libuufiles.so": "file:./src/main/cpp/types/libuufiles",
+    "libuumic.so": "file:./src/main/cpp/types/libuumic",
+    "libuuhost.so": "file:./src/main/cpp/types/libuuhost"
+  }
+}

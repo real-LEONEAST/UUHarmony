@@ -1,0 +1,144 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ack(t: &mut TerminalClient, id: u32) {
+        t.observe(&frame(13, id, br#"{"code":0}"#));
+    }
+
+    #[test]
+    fn multiple_sessions_are_isolated_and_kill_is_correlated() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        t.observe(&frame(5, 7, b"A"));
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 8);
+        t.observe(&frame(5, 8, b"B"));
+        t.prepare(&json!({"action":"select","session":7})).unwrap();
+        assert_eq!(t.snapshot()["output"], "A");
+        t.prepare(&json!({"action":"kill","session":7,"sessionToken":1,"confirmed":true})).unwrap();
+        t.observe(&frame(12, 8, br#"{"code":0}"#));
+        assert_eq!(t.snapshot()["killState"], "pending");
+        t.observe(&frame(12, 7, br#"{"code":0}"#));
+        assert_eq!(t.snapshot()["killState"], "confirmed");
+        assert!(t.prepare(&json!({"action":"write","session":7,"text":"x"})).is_err());
+        let p = t.prepare(&json!({"action":"write","session":8,"text":"b"})).unwrap().unwrap();
+        assert_eq!(u32::from_le_bytes(p[8..12].try_into().unwrap()), 8);
+        t.prepare(&json!({"action":"select","session":8})).unwrap();
+        assert_eq!(t.snapshot()["output"], "B");
+    }
+
+    #[test]
+    fn late_open_is_quarantined_and_zero_never_fabricates_second_session() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 0);
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 0);
+        assert_eq!(t.snapshot()["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(t.snapshot()["openQuarantined"], true);
+        assert!(t.prepare(&json!({"action":"open","confirmed":true})).is_err());
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        t.opening.as_mut().unwrap().at = Instant::now() - Duration::from_secs(16);
+        assert_eq!(t.snapshot()["openQuarantined"], true);
+        ack(&mut t, 9);
+        assert!(t.snapshot()["sessions"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_and_kill_timeouts_cannot_authorize_late_responses() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        let list = t.prepare(&json!({"action":"list"})).unwrap().unwrap();
+        let request = u32::from_le_bytes(list[8..12].try_into().unwrap());
+        assert_eq!(request, 0);
+        *t.list_pending.as_mut().unwrap() = Instant::now() - Duration::from_secs(16);
+        t.snapshot();
+        t.observe(&frame(10, request, br#"[{"session_id":9}]"#));
+        assert_eq!(t.snapshot()["sessions"].as_array().unwrap().len(), 1);
+        assert!(t.prepare(&json!({"action":"list"})).is_err());
+        t.prepare(&json!({"action":"kill","session":7,"sessionToken":1,"confirmed":true})).unwrap();
+        t.kills.get_mut(&7).unwrap().at = Instant::now() - Duration::from_secs(16);
+        t.snapshot();
+        t.observe(&frame(12, 7, br#"{"code":0}"#));
+        assert_eq!(t.snapshot()["killState"], "unknown");
+        assert!(t.prepare(&json!({"action":"kill","session":7,"sessionToken":1,"confirmed":true})).is_err());
+    }
+
+    #[test]
+    fn zero_session_and_fragmented_output_remain_valid() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        let p = frame(13, 0, br#"{"code":0}"#);
+        for c in p.chunks(4) { t.observe(c); }
+        assert_eq!(t.snapshot()["session"], 0);
+        t.observe(&frame(5, 0, &vec![b'x'; LIMIT + 1]));
+        assert_eq!(t.snapshot()["output"].as_str().unwrap().len(), LIMIT);
+        assert!(t.prepare(&json!({"action":"write","session":0,"text":"x"})).is_ok());
+    }
+
+    #[test]
+    fn list_attach_and_reused_identity_are_guarded() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"list"})).unwrap();
+        t.observe(&frame(10, 0, br#"[{"session_id":8,"state":"running","created_at_ms":100}]"#));
+        assert_eq!(t.snapshot()["sessions"][0]["phase"], "available");
+        assert!(t.prepare(&json!({"action":"kill","session":8,"sessionToken":99,"confirmed":true})).is_err());
+        t.prepare(&json!({"action":"attach","session":8,"sessionToken":1,"confirmed":true})).unwrap();
+        ack(&mut t, 8);
+        assert!(t.prepare(&json!({"action":"write","session":8,"sessionToken":1,"text":"x"})).is_ok());
+        t.prepare(&json!({"action":"list"})).unwrap();
+        t.observe(&frame(10, 0, br#"[{"session_id":8,"state":"running","created_at_ms":101}]"#));
+        assert!(t.prepare(&json!({"action":"write","session":8,"sessionToken":1,"text":"x"})).is_err());
+        assert!(t.prepare(&json!({"action":"kill","session":8,"sessionToken":1,"confirmed":true})).is_err());
+    }
+
+    #[test]
+    fn malformed_kill_response_is_unknown_not_rejected() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        let p = t.prepare(&json!({"action":"kill","session":7,"sessionToken":1,"confirmed":true})).unwrap().unwrap();
+        assert_eq!(&p[16..], br#"{"session_id":7}"#);
+        t.observe(&frame(12, 7, b"{}"));
+        assert_eq!(t.snapshot()["killState"], "unknown");
+        assert!(t.prepare(&json!({"action":"kill","session":7,"sessionToken":1,"confirmed":true})).is_err());
+    }
+
+    #[test]
+    fn stale_or_exited_list_entry_cannot_attach_and_detach_preserves_other_sessions() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 8);
+        let packet = t.prepare(&json!({"action":"detach","session":7,"sessionToken":1})).unwrap().unwrap();
+        assert_eq!(packet[5], 16);
+        assert!(t.prepare(&json!({"action":"write","session":8,"text":"b"})).is_ok());
+        t.prepare(&json!({"action":"list"})).unwrap();
+        t.observe(&frame(10, 0, br#"[{"session_id":8,"state":"running"}]"#));
+        assert!(t.prepare(&json!({"action":"attach","session":7,"sessionToken":1,"confirmed":true})).is_err());
+        t.prepare(&json!({"action":"list"})).unwrap();
+        t.observe(&frame(10, 0, br#"[{"session_id":7,"state":"exited"},{"session_id":8}]"#));
+        assert!(t.prepare(&json!({"action":"attach","session":7,"sessionToken":1,"confirmed":true})).is_err());
+        assert!(t.prepare(&json!({"action":"write","session":8,"text":"b"})).is_ok());
+    }
+
+    #[test]
+    fn attaching_clears_old_output_before_server_replay() {
+        let mut t = TerminalClient::default();
+        t.prepare(&json!({"action":"open","confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        t.observe(&frame(5, 7, b"old"));
+        t.prepare(&json!({"action":"detach","session":7,"sessionToken":1})).unwrap();
+        t.prepare(&json!({"action":"list"})).unwrap();
+        t.observe(&frame(10, 0, br#"[{"session_id":7,"state":"detached"}]"#));
+        t.prepare(&json!({"action":"attach","session":7,"sessionToken":1,"confirmed":true})).unwrap();
+        ack(&mut t, 7);
+        t.observe(&frame(5, 7, b"replay"));
+        assert_eq!(t.snapshot()["output"], "replay");
+    }
+}

@@ -1,0 +1,40 @@
+# Build products and IDE state
+/.build/
+/build-profile.json5
+/entry/libs/
+**/.hvigor/
+**/.idea/
+**/.deveco/
+**/build/
+**/target/
+**/oh_modules/
+**/node_modules/
+
+# Local signing, server dumps, and installation packages
+.env
+.env.*
+*.log
+*.hap
+*.hsp
+*.app
+*.apk
+*.p12
+*.pfx
+*.p7b
+*.keystore
+*.jks
+*.key
+*.cer
+*.crt
+*.pem
+*.pcap
+*.pcapng
+*.dmp
+*.sqlite
+*.db
+evidence/
+deliverables/
+
+# Public DTLS fixtures distributed by webrtc-rs
+!rust/vendor/webrtc-dtls/examples/certificates/*.pem
+!host-rust/vendor/webrtc-dtls/examples/certificates/*.pem
