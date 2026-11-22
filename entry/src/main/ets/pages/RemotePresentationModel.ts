@@ -6,7 +6,16 @@ export interface RemotePresentationInput {
 export interface RemotePresentation {
   x:number;y:number;width:number;height:number;panelX:number;panelY:number;panelWidth:number;panelHeight:number;
 }
+export const MOBILE_TEXT_DOCK_HEIGHT:number=52;
+export interface RemoteVideoTransform { scale:number;x:number;y:number; }
 function positive(v:number):number{return Number.isFinite(v)?Math.max(0,v):0;}
+
+// The Surface keeps its layout size. Only its visible frame is fitted above the editor.
+export function fitVideoAboveKeyboard(stageHeight:number,frameHeight:number,editorTop:number):RemoteVideoTransform {
+  const stage=Math.max(1,positive(stageHeight));
+  const height=Math.max(1,Math.min(stage,positive(editorTop)));
+  return {scale:Math.min(1,height/Math.max(1,positive(frameHeight))),x:0,y:(height-stage)/2};
+}
 // Canvas uses real avoid areas only; UI padding never reduces the desktop image.
 export function remotePresentation(v:RemotePresentationInput):RemotePresentation {
   const w=positive(v.width),h=positive(v.height),x=Math.min(w,positive(v.left)),y=Math.min(h,positive(v.top));

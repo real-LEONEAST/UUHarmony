@@ -10,7 +10,7 @@ import { VirtualPlan, VirtualControl } from './VirtualKeyModel';
 import { virtualSelection } from './VirtualPlanSelection';
 import { adaptUuPlan } from './UuPlanAdapter';
 import { util } from '@kit.ArkTS';
-import { remotePresentation, RemotePresentation, remoteRailPlacement, RemoteRailPlacement } from './RemotePresentationModel';
+import { fitVideoAboveKeyboard, MOBILE_TEXT_DOCK_HEIGHT, remotePresentation, RemotePresentation, remoteRailPlacement, RemoteRailPlacement, RemoteVideoTransform } from './RemotePresentationModel';
 import { UiColor } from './UiFoundation';
 import { detached } from './DetachedCoordinator';
 import { UiThemeDialog, UiDialogOptions } from './UiThemeDialog';
@@ -136,6 +136,8 @@ struct RemoteDesktop {
   @State private panX:number=0;
   @State private panY:number=0;
   @State private keyboard:boolean=false;
+  @State private batchKeyboard:boolean=false;
+  @State private keyboardDockHeight:number=0;
   @State private imeReset:number=0;
   @State private composing:boolean=false;
   @State private ctrl:boolean=false;
@@ -327,7 +329,7 @@ struct RemoteDesktop {
     if(this.micActive){this.mic.disable();return;}
     this.syncMicrophone();if(this.micAllowed){this.mic.enable();}
   }
-  onBackPress():boolean {if(this.terminalOpen){this.requestTerminalReturn();return true;}if(this.monitorsOpen){this.openMonitors(false);return true;}if(this.advancedOpen){if(this.advancedInitial===3&&this.fileBrowsing){this.fileBrowsing=false;}else{this.closeAdvanced();}return true;}if(this.centerOpen){this.openCenter(false);return true;}if(this.keyboard){this.keyboard=false;this.safeReset();this.syncInputGate();return true;}if(this.toolsOpen){if(this.operationsPage!=='ops'){this.operationsPage=this.operationsPage==='power'?'more':this.operationsPage==='hardware'||this.operationsPage==='mouse'?'external':'ops';}else{this.toggleTools(false);}return true;}this.requestExit();return true;}
+  onBackPress():boolean {if(this.terminalOpen){this.requestTerminalReturn();return true;}if(this.monitorsOpen){this.openMonitors(false);return true;}if(this.advancedOpen){if(this.advancedInitial===3&&this.fileBrowsing){this.fileBrowsing=false;}else{this.closeAdvanced();}return true;}if(this.centerOpen){this.openCenter(false);return true;}if(this.keyboard){this.closeKeyboard();return true;}if(this.toolsOpen){if(this.operationsPage!=='ops'){this.operationsPage=this.operationsPage==='power'?'more':this.operationsPage==='hardware'||this.operationsPage==='mouse'?'external':'ops';}else{this.toggleTools(false);}return true;}this.requestExit();return true;}
   private updateVideoInsets():void{const value=windowPolicy.videoInsets();this.videoLeft=value.left;this.videoRight=value.right;this.videoTop=value.top;this.videoBottom=value.bottom;}
   private updateInsets():void{this.updateVideoInsets();const insets=windowPolicy.insets();this.safeLeft=insets.left;this.safeRight=insets.right;this.safeTop=insets.top;this.safeBottom=insets.bottom;}
   private clearToolsTimer():void{if(this.toolsTimer>=0){clearTimeout(this.toolsTimer);this.toolsTimer=-1;}}
@@ -400,8 +402,8 @@ struct RemoteDesktop {
     if(feedback.tone==='ready'&&this.preferredMode===TouchMode.Tablet&&this.mode!==TouchMode.Tablet){return new RemoteInteractionFeedback('屏幕触控 · 可操作',this.touchSupport===0?'正在确认平板触控能力，暂用屏幕触控。':this.touchSupport===1?'远端不支持平板触控，已使用屏幕触控。':'未收到平板触控能力，已使用屏幕触控。','warning');}
     return feedback;
   }
-  private openKeyboard():void {this.safeReset();this.toolsOpen=false;this.centerOpen=false;this.advancedOpen=false;this.monitorsOpen=false;this.keyboard=true;this.syncInputGate();}
-  private closeKeyboard():void {this.keyboard=false;this.imeFocused=false;this.safeReset();this.syncInputGate();}
+  private openKeyboard():void {this.safeReset();this.toolsOpen=false;this.centerOpen=false;this.advancedOpen=false;this.monitorsOpen=false;this.keyboardDockHeight=0;this.keyboard=true;this.syncInputGate();}
+  private closeKeyboard():void {this.keyboard=false;this.keyboardDockHeight=0;this.imeFocused=false;this.safeReset();this.syncInputGate();}
   private modifierLabel():string {return [this.ctrl?'Ctrl':'',this.alt?'Alt':'',this.shift?'Shift':'',this.win?'Win':''].filter((s:string)=>s.length>0).join('+');}
   private syncModifiers():void {const keys=this.mobile.modifierKeys();this.ctrl=keys.includes(162);this.alt=keys.includes(164);this.shift=keys.includes(160);this.win=keys.includes(91);}
   private selectModifier(key:number):void {if(!this.inputAvailable()||this.composing){return;}this.mobile.toggleModifier(key);this.syncModifiers();this.inputHint=this.modifierLabel().length>0?'组合键先在本地选择，下一按键时发送。':'已取消组合键选择。';}
@@ -409,6 +411,11 @@ struct RemoteDesktop {
   private combo(keys:number[],key:number,label:string):void {if(!this.inputAvailable()||this.composing){return;}const accepted=this.mobile.combo(keys,key);this.syncModifiers();this.inputHint=accepted?'已排队发送 '+label:'未发送，请检查连接状态。';}
   private keyboardBottom():number {return Math.max(this.safeBottom,this.imeHeight>0?this.imeHeight+8:0);}
   private keyboardHeight():number {return Math.max(72,Math.min(340,this.viewportH-this.keyboardBottom()-this.safeTop));}
+  private videoTransform():RemoteVideoTransform {
+    if(pcHost.supported||!this.keyboard||this.imeHeight<=0){return {scale:this.zoom,x:this.panX,y:this.panY};}
+    const editorTop=this.viewportH-this.keyboardBottom()-(this.keyboardDockHeight||MOBILE_TEXT_DOCK_HEIGHT)-this.videoTop-6;
+    return fitVideoAboveKeyboard(this.stageH,this.fitHeight(),editorTop);
+  }
   private hardwareGates():void {
     const ready=this.visible&&this.inputAvailable()&&!this.keyboard&&!this.toolsOpen&&!this.centerOpen&&!this.advancedOpen&&!this.monitorsOpen;
     const dock=this.keyboard&&this.imeFocused;
@@ -818,11 +825,11 @@ struct RemoteDesktop {
   }
   private special(key:number,label:string='按键'):void {if(!this.inputAvailable()||this.composing){return;}const accepted=this.mobile.key(key);this.syncModifiers();this.inputHint=accepted?'已排队发送 '+label:'未发送，请检查连接状态。';}
   private shortcut(key:number):void {this.mobile.shortcut(key);this.ctrl=false;this.alt=false;this.shift=false;this.win=false;}
-  private keyboardReady():boolean {
-    return this.keyboard&&this.imeFocused&&this.inputAvailable()&&session.busy&&session.appForeground&&session.windowFocused&&!session.isClosing&&!session.watch&&!this.toolsOpen&&!this.centerOpen&&!this.advancedOpen&&!this.monitorsOpen&&!this.terminalOpen;
+  private keyboardReady(requireFocus:boolean=true):boolean {
+    return this.keyboard&&(!requireFocus||this.imeFocused)&&this.inputAvailable()&&session.busy&&session.appForeground&&session.windowFocused&&!session.isClosing&&!session.watch&&!this.toolsOpen&&!this.centerOpen&&!this.advancedOpen&&!this.monitorsOpen&&!this.terminalOpen;
   }
-  private commitIme(text:string):boolean {
-    if(!this.keyboardReady()){return false;}
+  private commitIme(text:string,requireFocus:boolean=true):boolean {
+    if(!this.keyboardReady(requireFocus)){return false;}
     const accepted=this.mobile.commitText(text);this.syncModifiers();
     this.inputHint=accepted?'文字已排队发送，请以电脑画面为准。':'文字未发送且不会重放；组合键仅接受单字母或数字。';return accepted;
   }
@@ -944,9 +951,9 @@ struct RemoteDesktop {
   }
   @Builder
   keyboardPanel(){
-    RemoteKeyboardDock({composing:$composing,available:this.inputAvailable()&&session.windowFocused&&session.appForeground,resetToken:this.imeReset,nativeOnly:pcHost.supported,modifiers:this.modifierLabel(),hint:this.inputHint,maxHeight:this.keyboardHeight(),imeVisible:this.imeHeight>0,
+    RemoteKeyboardDock({composing:$composing,batchMode:$batchKeyboard,available:this.inputAvailable()&&session.windowFocused&&session.appForeground,resetToken:this.imeReset,nativeOnly:pcHost.supported,modifiers:this.modifierLabel(),hint:this.inputHint,maxHeight:this.keyboardHeight(),imeVisible:this.imeHeight>0,
       onModifier:(key:number)=>this.selectModifier(key),onKey:(key:number,label:string)=>this.special(key,label),onCombo:(keys:number[],key:number,label:string)=>this.combo(keys,key,label),
-      onClear:()=>this.clearModifiers(),onCommit:(text:string)=>this.commitIme(text),onImeKey:(key:number,count:number)=>this.imeKey(key,count),onPhysicalKey:(event:KeyEvent)=>this.physicalKey(event,true),canInput:()=>this.keyboardReady(),inputEpoch:()=>this.imeReset,onReset:()=>this.safeReset(),onClose:()=>this.closeKeyboard(),onFocusChange:(focused:boolean)=>{this.imeFocused=focused;this.hardwareGates();}})
+      onClear:()=>this.clearModifiers(),onCommit:(text:string)=>this.commitIme(text),onSendDraft:(text:string)=>this.commitIme(text,false),onImeKey:(key:number,count:number)=>this.imeKey(key,count),onPhysicalKey:(event:KeyEvent)=>this.physicalKey(event,true),canInput:()=>this.keyboardReady(),inputEpoch:()=>this.imeReset,onReset:()=>this.safeReset(),onClose:()=>this.closeKeyboard(),onFocusChange:(focused:boolean)=>{this.imeFocused=focused;this.hardwareGates();}})
   }
   @Builder
   toolsPanel(){
@@ -1032,7 +1039,8 @@ struct RemoteDesktop {
       Stack({alignContent:Alignment.Center}){
       Stack({alignContent:Alignment.Center}){
         XComponent({id:'remoteDesktop',type:XComponentType.SURFACE,controller:this.surfaceController})
-          .width(this.fitWidth()).height(this.fitHeight()).onAreaChange((_old:Area,area:Area)=>{session.setViewport(vp2px(Number(area.width)),vp2px(Number(area.height)));}).scale({x:this.zoom,y:this.zoom}).translate({x:this.panX,y:this.panY})
+          .width(this.fitWidth()).height(this.fitHeight()).onAreaChange((_old:Area,area:Area)=>{session.setViewport(vp2px(Number(area.width)),vp2px(Number(area.height)));})
+          .scale({x:this.videoTransform().scale,y:this.videoTransform().scale}).translate({x:this.videoTransform().x,y:this.videoTransform().y})
           .onLoad(()=>{this.surfaceId=this.surfaceController.getXComponentSurfaceId();session.setSurface(this.surfaceId);this.beginOnSurface();})
           .onDestroy(()=>{if(session.multiMode&&detached.hasPane()){session.clearPrimarySurface(this.surfaceId);session.closeMultiPrimary();}else{session.surfaceDestroyed(this.surfaceId);}this.surfaceId='';this.syncScreenOn();})
         Text('').width('100%').height('100%').backgroundColor('#00000000').id('touchViewport').accessibilityText('远程桌面输入区域').focusable(true).focusOnTouch(true).defaultFocus(true)
@@ -1088,7 +1096,11 @@ struct RemoteDesktop {
       if(this.hasFrame&&(this.centerView.watch||this.viewOnly)){
         Text(this.centerView.watch?'仅观看':'本地缩放').id('remoteModeFlag').fontSize(12).fontColor(UiColor.text).padding(8).backgroundColor(UiColor.surface).borderRadius(10).position({left:this.safeLeft+8,top:this.contentTop()+8}).hitTestBehavior(HitTestMode.None)
       }
-      if(this.keyboard){Column(){this.keyboardPanel()}.width(Math.min(720,this.viewportW-this.safeLeft-this.safeRight)).position({left:this.safeLeft,bottom:this.keyboardBottom()})}
+      if(this.keyboard){
+        Column(){this.keyboardPanel()}
+          .width(Math.min(720,this.viewportW-this.safeLeft-this.safeRight)).position({left:this.safeLeft,bottom:this.keyboardBottom()})
+          .onAreaChange((_old:Area,area:Area)=>{this.keyboardDockHeight=Number(area.height);})
+      }
       if(this.toolsOpen||this.centerOpen||this.monitorsOpen||this.advancedOpen){
         Stack({alignContent:Alignment.TopStart}){Column(){
           if(this.toolsOpen){this.toolsPanel()}

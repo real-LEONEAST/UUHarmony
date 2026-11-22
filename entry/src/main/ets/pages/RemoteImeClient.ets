@@ -117,16 +117,17 @@ export class RemoteImeClient {
         if(!this.wanted||revision!==this.revision||!this.ready()){await this.detachOwned();return;}
         this.listen();
         this.operation='显示';await this.controller.showTextInput(reason);
-        if(this.wanted&&revision===this.revision&&this.ready()){this.attaching=false;this.status('选词即输入 · 回车单独发送');}else{await this.detachOwned();}
+        if(this.wanted&&revision===this.revision&&this.ready()){this.attaching=false;this.status('选词后立即发送');}else{await this.detachOwned();}
       }catch(error){
         if(revision===this.revision){const code=(error as BusinessError).code;this.attaching=false;this.wanted=false;this.model.reset();this.changed();this.status('输入法未打开（'+this.operation+' / '+(code||'unknown')+'），点此重试');}
         await this.detachOwned();
       }
     }).catch(()=>{this.status('输入法会话不可用，请重新打开键盘。');});
   }
-  stop():void {
+  stop():Promise<void> {
     this.wanted=false;this.attaching=false;this.shown=false;this.revision++;this.model.reset();this.changed();
     // Callback gate closes synchronously, before asynchronous detach can finish.
     imeWork=imeWork.then(()=>this.detachOwned()).catch(()=>{});
+    return imeWork;
   }
 }
