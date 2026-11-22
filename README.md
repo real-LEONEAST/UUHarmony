@@ -33,7 +33,7 @@ node scripts/build.cjs release
 
 把 `DEVECO_HOME` 改为本机的 DevEco Studio 安装目录。未签名的 HAP 和 APP 会输出到 `.build/release/`，文件名包含应用名称和版本号。真机安装需要根据用途使用调试签名或正式分发渠道。 [构建与发行指南](docs/BUILD-RELEASE.md)
 
-应用版本为 **v1.0.63**。构建入口见当前 `main`，版本标签保留对应的原始源码快照。 [v1.0.63 源码标签](https://github.com/real-LEONEAST/UUHarmony/tree/v1.0.63)
+当前发行版本为 **v1.1.0**。版本标签对应发行源码。 [v1.1.0 Release](https://github.com/real-LEONEAST/UUHarmony/releases/tag/v1.1.0)
 
 ## 项目结构
 

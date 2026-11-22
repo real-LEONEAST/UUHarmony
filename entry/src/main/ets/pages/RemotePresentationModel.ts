@@ -6,12 +6,22 @@ export interface RemotePresentationInput {
 export interface RemotePresentation {
   x:number;y:number;width:number;height:number;panelX:number;panelY:number;panelWidth:number;panelHeight:number;
 }
+export const MOBILE_TEXT_DOCK_HEIGHT:number=52;
+export interface RemoteVideoTransform { scale:number;x:number;y:number; }
 function positive(v:number):number{return Number.isFinite(v)?Math.max(0,v):0;}
+
+// The Surface keeps its layout size. Only its visible frame is fitted above the editor.
+export function fitVideoAboveKeyboard(stageHeight:number,frameHeight:number,editorTop:number):RemoteVideoTransform {
+  const stage=Math.max(1,positive(stageHeight));
+  const height=Math.max(1,Math.min(stage,positive(editorTop)));
+  return {scale:Math.min(1,height/Math.max(1,positive(frameHeight))),x:0,y:(height-stage)/2};
+}
 // Canvas uses real avoid areas only; UI padding never reduces the desktop image.
 export function remotePresentation(v:RemotePresentationInput):RemotePresentation {
   const w=positive(v.width),h=positive(v.height),x=Math.min(w,positive(v.left)),y=Math.min(h,positive(v.top));
   const width=Math.max(1,w-x-positive(v.right)-positive(v.railWidth));
-  const available=Math.max(1,h-y-positive(v.bottom)-positive(v.railHeight));
+  const bottom=Math.min(h-positive(v.bottom)-positive(v.railHeight),v.railTop??h);
+  const available=Math.max(1,bottom-y);
   if(!v.mobile){
     const margin=Math.min(8,(width-1)/2);
     const gap=Math.min(8,available-1);
@@ -38,7 +48,7 @@ export function remoteRailPlacement(width:number,height:number,left:number,right
   const x=Math.max(0,left)+8, y=Math.max(0,top)+8;
   const availableWidth=Math.max(1,width-x-Math.max(0,right)-8);
   const availableHeight=Math.max(1,height-y-Math.max(0,bottom)-8);
-  const railWidth=Math.min(availableWidth,horizontal?(compact?256:296):(compact?70:80));
+  const railWidth=Math.min(availableWidth,horizontal?(compact?318:368):(compact?70:80));
   const railHeight=horizontal?Math.min(availableHeight,64):availableHeight;
   return {left:horizontal?x+(availableWidth-railWidth)/2:width-Math.max(0,right)-8-railWidth,top:horizontal?height-Math.max(0,bottom)-8-railHeight:y+(availableHeight-railHeight)/2,width:railWidth,height:railHeight};
 }

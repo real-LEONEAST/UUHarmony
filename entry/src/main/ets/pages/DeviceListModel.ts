@@ -8,6 +8,7 @@ export interface DeviceRow {
   wallpaperState?: string;
   fields: Record<string, string | number | boolean>;
 }
+export type DeviceControlState = 'active' | 'idle' | 'locally-ended' | 'stale' | 'unknown';
 export interface DeviceCard {
   key: string;
   name: string;
@@ -16,6 +17,7 @@ export interface DeviceCard {
   wallpaperState: string;
   presence: string;
   statusLabel: string;
+  controlState: DeviceControlState;
   controlLabel: string;
   participantToken: string;
   platformLabel: string;
@@ -61,9 +63,14 @@ export function deviceCards(rows: DeviceRow[], stale: boolean, checkingEndedDevi
     let statusLabel: string = presence === 'online' ? '在线' : presence === 'offline' ? '离线' : '状态未知';
     const participants = row.participants;
     const onlyThisController=Array.isArray(participants)&&participants.length===1&&row.fields['localControllerOnly']===true;
-    const controlLabel = row.key===checkingEndedDevice&&onlyThisController ? '本机已断开，等待服务端确认' :
-      stale ? '被控状态已过期' : !Array.isArray(participants) ? '被控状态未知' : participants.length === 0 ? '未被控制' : '被控中 · 控制端：' + participants.map((name: string) => name.trim() || '名称未知').join('、');
-    cards.push({ key: row.key, controlLabel: controlLabel, participantToken: typeof row.participantToken==='string'?row.participantToken:'', name: deviceName(row), recordLabel: recordLabel(row, rows), wallpaperRevision: typeof row.wallpaperRevision === 'string' && /^[a-f0-9]{64}$/.test(row.wallpaperRevision) ? row.wallpaperRevision : '', wallpaperState: typeof row.wallpaperState==='string'?row.wallpaperState:'none', presence: presence,
+    const control: { state: DeviceControlState; label: string } =
+      row.key === checkingEndedDevice && onlyThisController ? { state: 'locally-ended', label: '本机已断开，等待服务端确认' } :
+      stale ? { state: 'stale', label: '被控状态已过期' } :
+      !Array.isArray(participants) ? { state: 'unknown', label: '被控状态未知' } :
+      participants.length === 0 ? { state: 'idle', label: '未被控制' } :
+      { state: 'active', label: '被控中 · 控制端：' + participants.map((name: string) => name.trim() || '名称未知').join('、') };
+    const participantToken = control.state === 'active' && typeof row.participantToken === 'string' ? row.participantToken : '';
+    cards.push({ key: row.key, controlState: control.state, controlLabel: control.label, participantToken: participantToken, name: deviceName(row), recordLabel: recordLabel(row, rows), wallpaperRevision: typeof row.wallpaperRevision === 'string' && /^[a-f0-9]{64}$/.test(row.wallpaperRevision) ? row.wallpaperRevision : '', wallpaperState: typeof row.wallpaperState==='string'?row.wallpaperState:'none', presence: presence,
       statusLabel: statusLabel, platformLabel: platformLabel, category:category, current: row.current,
       connectable: connectable, actionLabel: row.current ? '本机身份，无需连接' : !windows ? '暂不支持此设备' : presence === 'offline' ? '设备离线' : presence === 'unknown' ? '等待状态确认' : '进入远程桌面',
       rank: row.current ? 4 : presence === 'online' ? (windows ? 0 : 1) : presence === 'unknown' ? 2 : 3 });
