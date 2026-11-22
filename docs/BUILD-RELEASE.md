@@ -20,12 +20,12 @@ node scripts/build.cjs release
 
 已有 Cargo 缓存时可运行 `node scripts/build.cjs release --offline`。`--offline` 作用于 Cargo，OHPM 和 Hvigor 仍按各自配置使用依赖缓存。
 
-v1.0.63 的本地输出如下。
+v1.1.0 的本地输出如下。
 
 ```text
 .build/release/
-  UUHarmony-v1.0.63.hap
-  UUHarmony-v1.0.63.app
+  UUHarmony-v1.1.0.hap
+  UUHarmony-v1.1.0.app
 ```
 
 控制端和鸿蒙电脑被控端的原生库会随界面一起打进同一个 HAP，供手机、平板和鸿蒙电脑使用。APP 封装这份应用的 HAP，供华为发布流程处理。
